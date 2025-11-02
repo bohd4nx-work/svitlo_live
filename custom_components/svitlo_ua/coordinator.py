@@ -1,6 +1,6 @@
 import logging
-from datetime import timedelta
-
+from datetime import timedelta, datetime
+import aiohttp
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -28,16 +28,38 @@ class SvitloDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
     async def _async_update_data(self):
-        """Оновлення даних (викликається кожні 5 хвилин)."""
+        """Оновлення даних з API."""
         try:
-            # TODO: Тут має бути логіка звернення до API Yasno або іншого джерела
-            # Поверни структуру з часом відключення, включення, статусом тощо.
-            # Наприклад:
+            url = f"https://svitlo.vesma.today/api/schedule?region={self.region}&group={self.group}"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        raise HomeAssistantError(f"API повернув статус {resp.status}")
+                    data = await resp.json()
+
+            current = data.get("currentStatus", {})
+            next_start = current.get("start")
+            next_end = current.get("end")
+
+            if current.get("isOffNow"):
+                status = True
+            else:
+                status = False
+
+            # Обрахунок часу до наступного відключення (якщо дано)
+            now = datetime.now().astimezone()
+            if next_start:
+                dt_start = datetime.fromisoformat(next_start)
+                seconds_to_next = max(0, int((dt_start - now).total_seconds()))
+            else:
+                seconds_to_next = None
+
             return {
-                "outage_now": False,
-                "next_outage_start": "2025-11-03T10:00:00+02:00",
-                "next_power_on": "2025-11-03T13:00:00+02:00",
-                "time_to_next_outage": 3600,  # у секундах
+                "outage_now": status,
+                "next_outage_start": next_start,
+                "next_power_on": next_end,
+                "time_to_next_outage": seconds_to_next,
             }
 
         except Exception as err:
