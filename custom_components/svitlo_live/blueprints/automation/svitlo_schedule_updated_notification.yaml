@@ -102,9 +102,6 @@ action:
         value_template: "{{ changed }}"
     then:
       - variables:
-          today_iso: "{{ now().astimezone(now().tzinfo).date().isoformat() }}"
-          tomorrow_iso: "{{ (now().astimezone(now().tzinfo) + timedelta(days=1)).date().isoformat() }}"
-
           events_today: >-
             {% set today = now().astimezone(now().tzinfo).date() %}
             {% set ns = namespace(events=[]) %}
