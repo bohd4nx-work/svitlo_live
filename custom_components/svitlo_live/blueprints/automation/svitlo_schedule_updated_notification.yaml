@@ -130,10 +130,12 @@ action:
 
             {% if events_today | length > 0 -%}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }})
+            
             {% for e in events_today -%}
             {%- set s = as_datetime(e.start).astimezone(now().tzinfo) -%}
             {%- set end = as_datetime(e.end).astimezone(now().tzinfo) -%}
             ❌ {{ s.strftime('%H:%M') }} ━ {{ end.strftime('%H:%M') }}
+            
             {% endfor -%}
             {%- else -%}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}): ⚡ світло без відключень
@@ -141,10 +143,12 @@ action:
 
             {% if events_tomorrow | length > 0 -%}
             📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }})
+            
             {% for e in events_tomorrow -%}
             {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) -%}
             {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) -%}
             ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}
+            
             {% endfor -%}
             {%- endif %}
 
