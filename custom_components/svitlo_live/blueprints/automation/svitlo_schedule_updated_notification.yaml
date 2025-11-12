@@ -1,8 +1,9 @@
 blueprint:
   name: "Svitlo Live: Сповіщення про оновлення графіків"
-  description: "Надсилає push коли оновлюється графіків відключення електропостачання сьогодні або завтра"
+  description: "Надсилає push коли оновлюється графік відключення електропостачання сьогодні або завтра"
   domain: automation
   source_url: https://github.com/chaichuk/svitlo_live
+
   input:
     schedule_calendar:
       name: Календар Svitlo Live
@@ -47,11 +48,11 @@ variables:
   mobile_targets: !input mobile_targets
   title_text: !input title_text
   storage_helper: !input storage_helper
-  # Витягуємо назву регіону та черги з entity_id календаря
+
   region_queue: >-
     {% set parts = cal_entity.split('_') %}
     {% if parts | length >= 4 %}
-      {{ parts[1] | title }} {{ parts[2] | title }}, черга {{ parts[3:] | join('.') }}
+      {{ parts[1] | replace('-', ' ') | title }} {{ parts[2] | replace('-', ' ') | title }}, черга {{ parts[3:] | join('.') }}
     {% else %}
       {{ cal_entity.split('.')[1] | replace('_', ' ') | title }}
     {% endif %}
@@ -68,7 +69,7 @@ condition:
     before: "23:40:00"
 
 action:
-  # Отримуємо розклад на сьогодні та завтра
+  # 1) Події з 00:00 сьогодні до 23:59:59 завтра
   - service: calendar.get_events
     target:
       entity_id: !input schedule_calendar
@@ -84,81 +85,70 @@ action:
           {{ r[k]['events'] | sort(attribute='start') }}
         {% else %}[]{% endif %}
 
-      # Створюємо hash розкладу (повний формат)
+      # Компромісний надійний підпис: yymmddHHMM start+end для кожної події
       schedule_signature: >-
-        {% set ns = namespace(sig='') %}
-        {% for e in raw_events %}
-          {% set ns.sig = ns.sig ~ e.start[9:15] ~ e.end[9:15] ~ '|' %}
-        {% endfor %}
-        {{ ns.sig | regex_replace('[T:]', '') }}
+        {%- set ns = namespace(sig='') -%}
+        {%- for e in raw_events -%}
+          {%- set s = as_datetime(e.start).strftime('%y%m%d%H%M') -%}
+          {%- set t = as_datetime(e.end).strftime('%y%m%d%H%M') -%}
+          {%- set ns.sig = ns.sig ~ s ~ t -%}
+        {%- endfor -%}
+        {{ ("c=" ~ (raw_events|count|string) ~ ";" ~ ns.sig) | trim }}
 
-      # Попередній hash
       old_signature: "{{ states(storage_helper) | default('') }}"
-
-      # Чи змінилося?
-      changed: "{{ schedule_signature != old_signature }}"
+      changed: "{{ schedule_signature != old_signature and old_signature != '' }}"
 
   - if:
       - condition: template
         value_template: "{{ changed }}"
     then:
       - variables:
-          events_today: >-
-            {% set today = now().date() %}
-            {{ raw_events | selectattr('start', 'search', today.isoformat()) | list }}
+          today_iso: "{{ now().date().isoformat() }}"
+          tomorrow_iso: "{{ (now() + timedelta(days=1)).date().isoformat() }}"
 
-          events_tomorrow: >-
-            {% set tomorrow = (now() + timedelta(days=1)).date() %}
-            {{ raw_events | selectattr('start', 'search', tomorrow.isoformat()) | list }}
+          events_today: "{{ raw_events | selectattr('start', 'search', today_iso) | list }}"
+          events_tomorrow: "{{ raw_events | selectattr('start', 'search', tomorrow_iso) | list }}"
 
           body: >-
             📍 {{ region_queue }}
-            
+
             {% if events_today | length > 0 -%}
             📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }})
-            
             {% for e in events_today -%}
             {%- set s = as_datetime(e.start).astimezone(now().tzinfo) -%}
             {%- set end = as_datetime(e.end).astimezone(now().tzinfo) -%}
             ❌ {{ s.strftime('%H:%M') }} ━ {{ end.strftime('%H:%M') }}
-            
             {% endfor -%}
-            {%- else %}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}):
-            
-            ⚡ Світло буде весь день! ⚡
+            {%- else -%}
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}): ⚡ світло без відключень
             {%- endif %}
-            
+
             {% if events_tomorrow | length > 0 -%}
             📅 ЗАВТРА ({{ (now() + timedelta(days=1)).strftime('%d.%m.%Y') }})
-            
             {% for e in events_tomorrow -%}
-            {%- set s = as_datetime(e.start).astimezone(now().tzinfo) -%}
-            {%- set end = as_datetime(e.end).astimezone(now().tzinfo) -%}
-            ❌ {{ s.strftime('%H:%M') }} ━ {{ end.strftime('%H:%M') }}
-            
+            {%- set s2 = as_datetime(e.start).astimezone(now().tzinfo) -%}
+            {%- set e2 = as_datetime(e.end).astimezone(now().tzinfo) -%}
+            ❌ {{ s2.strftime('%H:%M') }} ━ {{ e2.strftime('%H:%M') }}
             {% endfor -%}
             {%- endif %}
-      - choose:
-          - conditions: "{{ mobile_targets | length > 0 }}"
-            sequence:
-              - repeat:
-                  for_each: !input mobile_targets
-                  sequence:
-                    - variables:
-                        svc: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-                    - service: "{{ svc }}"
-                      data:
-                        title: "{{ title_text }}"
-                        message: "{{ body }}"
-                        data:
-                          priority: high
-                          tag: svitlo_changed
-                          notification_icon: "mdi:calendar-alert"
 
-  # Зберігаємо hash
+      - repeat:
+          for_each: !input mobile_targets
+          sequence:
+            - variables:
+                svc: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+            - service: "{{ svc }}"
+              data:
+                title: "{{ title_text }}"
+                message: "{{ body }}"
+                data:
+                  priority: high
+                  tag: svitlo_changed
+                  notification_icon: mdi:calendar-alert
+
+  # 4) Зберігаємо підпис (обрізання до 255 на випадок довгих днів)
   - service: input_text.set_value
     target:
       entity_id: !input storage_helper
     data:
-      value: "{{ schedule_signature }}"
+      value: "{{ schedule_signature[:255] }}"
