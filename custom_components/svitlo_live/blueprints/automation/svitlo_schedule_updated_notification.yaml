@@ -1,6 +1,6 @@
 blueprint:
   name: "Svitlo Live: Сповіщення + Telegram"
-  description: "Надсилає push та Telegram повідомлення, коли оновлюється графік відключення."
+  description: "Надсилає push та Telegram повідомлення, коли оновлюється графік. Фільтрує минулі події для поточного дня."
   domain: automation
   source_url: https://github.com/chaichuk/svitlo_live
 
@@ -139,9 +139,13 @@ action:
       - variables:
           events_today: >-
             {% set today = now().astimezone(now().tzinfo).date() %}
+            {% set current_time = now().astimezone(now().tzinfo) %}
             {% set ns = namespace(events=[]) %}
             {% for e in raw_events %}
-              {% if as_datetime(e.start).astimezone(now().tzinfo).date() == today %}
+              {% set e_start = as_datetime(e.start).astimezone(now().tzinfo) %}
+              {% set e_end = as_datetime(e.end).astimezone(now().tzinfo) %}
+              {# Фільтр: Дата сьогоднішня І час завершення більше поточного #}
+              {% if e_start.date() == today and e_end > current_time %}
                 {% set ns.events = ns.events + [e] %}
               {% endif %}
             {% endfor %}
@@ -171,7 +175,7 @@ action:
             
             {% endfor -%}
             {%- else -%}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}): ⚡ світло без відключень
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}): ⚡ далі без відключень
             {%- endif %}
 
             {% if events_tomorrow | length > 0 -%}
@@ -199,7 +203,7 @@ action:
             
             {% endfor -%}
             {%- else -%}
-            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}): ⚡ світло без відключень
+            📅 СЬОГОДНІ ({{ now().strftime('%d.%m.%Y') }}): ⚡ далі без відключень
             {%- endif %}
 
             {% if events_tomorrow | length > 0 -%}
