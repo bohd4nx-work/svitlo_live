@@ -92,6 +92,16 @@
 
 ## 🧰 Встановлення через HACS
 
+[hacs-url]: https://github.com/hacs/integration
+[hacs-image]: https://img.shields.io/badge/hacs-default-orange.svg?style=flat-square
+[hasc-install-url]: https://my.home-assistant.io/redirect/hacs_repository/?owner=chaichuk&repository=svitlo_live&category=Integration
+[hacs-install-image]: https://my.home-assistant.io/badges/hacs_repository.svg
+
+Найшвидший і рекомендований шлях становлення через [HACS][hacs-url] натиснувши кнопку нижче:
+
+[![Add to HACS via My Home Assistant][hacs-install-image]][hasc-install-url]
+
+### Встановити самостійно:
 1. Відкрий HACS → **Integrations → Custom repositories**.  
 2. Додай репозиторій:
    ```
