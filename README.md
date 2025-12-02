@@ -96,6 +96,15 @@ For Chernivtsi and Donetsk — “Group N”; others — “Queue N.M”.
 
 ## 🧰 Installation via HACS
 
+[hacs-url]: https://github.com/hacs/integration
+[hacs-image]: https://img.shields.io/badge/hacs-default-orange.svg?style=flat-square
+[hasc-install-url]: https://my.home-assistant.io/redirect/hacs_repository/?owner=chaichuk&repository=svitlo_live&category=Integration
+[hacs-install-image]: https://my.home-assistant.io/badges/hacs_repository.svg
+
+The quickest way to install this integration is via [HACS][hacs-url] by clicking the button below:
+
+[![Add to HACS via My Home Assistant][hacs-install-image]][hasc-install-url]
+
 1. Open HACS → **Integrations → Custom repositories**.  
 2. Add this repository:
    ```
