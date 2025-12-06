@@ -53,3 +53,6 @@ API_URL = "https://svitlo-proxy.svitlo-proxy.workers.dev"
 
 # Спеціальний API для Київської, Одеської, Дніпропетровської області
 DTEK_API_URL = "https://dtek-api.svitlo-proxy.workers.dev/"
+
+# POE для Полтавської області
+POE_WEBSITE_URL = "https://www.poe.pl.ua/customs/dynamicgpv-info.php"
