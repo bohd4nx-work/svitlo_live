@@ -13,6 +13,7 @@ DEFAULT_SCAN_INTERVAL = 900  # 15 хв
 
 CONF_REGION = "region"
 CONF_QUEUE = "queue"
+CONF_SCAN_INTERVAL = "scan_interval"
 CONF_OPERATOR = "operator"  # <-- Нова константа для вибору оператора
 
 # Оновлений список регіонів
@@ -57,3 +58,6 @@ API_URL = "https://svitlo-proxy.svitlo-proxy.workers.dev"
 
 # Персональний API (Cloudflare Worker)
 DTEK_API_URL = "https://dtek-api.svitlo-proxy.workers.dev/"
+
+# POE для Полтавської області
+POE_WEBSITE_URL = "https://www.poe.pl.ua/customs/dynamicgpv-info.php"
