@@ -14,11 +14,13 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
-    API_URL,  # Тепер це ваш dtek-api worker
+    OLD_API_URL,
+    DTEK_API_URL,
     CONF_REGION,
     CONF_QUEUE,
     DEFAULT_SCAN_INTERVAL,
-    API_REGION_MAP, # <--- Імпортуємо мапу
+    API_REGION_MAP,
+    NEW_API_REGIONS,  # <--- Імпортуємо множину нових регіонів
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,12 +35,22 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
         self.hass = hass
-        self.region: str = config[CONF_REGION]  # Це "старий" ключ з конфігу (harkivska...)
+        self.region: str = config[CONF_REGION]  # Старий ключ (напр. harkivska-oblast або mikolaivska-oblast)
         self.queue: str = config[CONF_QUEUE]
 
-        # --- ВИЗНАЧАЄМО КЛЮЧ ДЛЯ ЗАПИТУ В API ---
-        # Якщо регіон є в мапі перекладу - беремо нову назву, інакше - стару
+        # 1. Спроба "перекласти" регіон на новий лад (для перевірки в NEW_API_REGIONS)
+        # Наприклад: harkivska -> kharkivska. 
+        # Якщо це Миколаїв (немає в мапі), залишиться mikolaivska-oblast.
         self.api_region_key = API_REGION_MAP.get(self.region, self.region)
+
+        # 2. Визначаємо, чи цей регіон належить до "Нового API"
+        self.is_new_api = (self.api_region_key in NEW_API_REGIONS)
+
+        # Якщо це старий API, то ми повинні використовувати "старий" ключ для пошуку в JSON,
+        # бо старий API не знає про 'kharkivska', він знає 'harkivska'.
+        # Тому для старого API відкочуємо ключ назад на self.region.
+        if not self.is_new_api:
+            self.api_region_key = self.region
 
         scan_seconds = int(config.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL))
 
@@ -46,8 +58,12 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if "_shared_api" not in shared:
             shared["_shared_api"] = {
                 "lock": asyncio.Lock(),
-                "last_json": None,
-                "last_json_utc": None,
+                # Кеш для старого API
+                "last_json_old": None,
+                "last_json_utc_old": None,
+                # Кеш для нового API
+                "last_json_new": None,
+                "last_json_utc_new": None,
             }
         self._shared_api = shared["_shared_api"]
 
@@ -56,16 +72,20 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(
             hass=hass,
             logger=_LOGGER,
-            # Ім'я координатора використовує self.region (старий ключ), щоб не плодити нові об'єкти
             name=f"svitlo_live_{self.region}_{self.queue}",
             update_interval=timedelta(seconds=scan_seconds),
         )
 
     async def _async_update_data(self) -> dict[str, Any]:
-        # Використовуємо одну URL для всіх
-        target_url = API_URL
-        cache_key_json = "last_json"
-        cache_key_utc = "last_json_utc"
+        # --- ВИБІР URL ---
+        if self.is_new_api:
+            target_url = DTEK_API_URL
+            cache_key_json = "last_json_new"
+            cache_key_utc = "last_json_utc_new"
+        else:
+            target_url = OLD_API_URL
+            cache_key_json = "last_json_old"
+            cache_key_utc = "last_json_utc_old"
 
         now_utc = dt_util.utcnow()
         shared = self._shared_api
@@ -95,45 +115,62 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     now_kyiv = dt_util.now(TZ_KYIV)
                     if now_kyiv.hour == 0 and now_kyiv.minute < MIDNIGHT_BLOCK_MINUTES:
                         if last_json is None:
-                            raise UpdateFailed("Midnight guard active and no data")
-                        _LOGGER.debug("Midnight guard active, reusing cached data")
-                    else:
+                            # Якщо це ніч і даних немає - пробуємо качати, але якщо помилка - не страшно
+                            pass 
+                        else:
+                            _LOGGER.debug("Midnight guard active, reusing cached data")
+                            should_reuse = True # force reuse
+
+                    if not should_reuse:
                         # Fetch
                         try:
                             session = async_get_clientsession(self.hass)
-                            _LOGGER.debug("Fetching API: %s", target_url)
+                            _LOGGER.debug("Fetching API: %s (NewAPI=%s)", target_url, self.is_new_api)
                             
                             async with session.get(target_url, timeout=30) as resp:
                                 if resp.status != 200:
-                                    raise UpdateFailed(f"HTTP {resp.status}")
+                                    raise UpdateFailed(f"HTTP {resp.status} for {target_url}")
                                 
                                 raw_response = await resp.json(content_type=None)
                                 
-                                # Обробка "body" з воркера
-                                body_str = raw_response.get("body")
-                                if body_str:
-                                    try:
-                                        final_data = json.loads(body_str)
-                                    except json.JSONDecodeError as err:
-                                        raise UpdateFailed(f"Failed to parse Worker body: {err}")
-                                elif "regions" in raw_response:
-                                    # Фолбек, якщо воркер віддав чистий JSON
-                                    final_data = raw_response
+                                # Логіка парсингу:
+                                # Новий API (Worker) повертає { "body": "..." }
+                                # Старий API повертає чистий JSON { "regions": [...] }
+                                
+                                final_data = None
+                                
+                                if self.is_new_api:
+                                    # Специфіка нового воркера
+                                    body_str = raw_response.get("body")
+                                    if body_str:
+                                        try:
+                                            final_data = json.loads(body_str)
+                                        except json.JSONDecodeError as err:
+                                            raise UpdateFailed(f"Failed to parse Worker body: {err}")
+                                    elif "regions" in raw_response:
+                                        final_data = raw_response
+                                    else:
+                                        raise UpdateFailed("New API response missing 'body' or 'regions'")
                                 else:
-                                    raise UpdateFailed("Response missing 'body' or 'regions'")
+                                    # Старий API - просто беремо JSON як є
+                                    if "regions" in raw_response:
+                                        final_data = raw_response
+                                    else:
+                                        # Буває, старий API повертає щось дивне
+                                        raise UpdateFailed("Old API response missing 'regions'")
 
                                 last_json = final_data
                                 shared[cache_key_json] = last_json
                                 shared[cache_key_utc] = dt_util.utcnow()
                                 
                         except Exception as e:
-                            raise UpdateFailed(f"Network error: {e}") from e
+                            raise UpdateFailed(f"Network error ({target_url}): {e}") from e
 
         # 2) Parse
         try:
             payload = self._build_from_api(last_json)
         except Exception as e:
-            raise UpdateFailed(f"Parse error: {e}") from e
+            raise UpdateFailed(f"Parse/Build error for {self.region}: {e}") from e
 
         # 3) Precise tick
         self._schedule_precise_refresh(payload)
@@ -143,38 +180,36 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         date_today = api.get("date_today")
         date_tomorrow = api.get("date_tomorrow")
 
-        # --- ТУТ ГОЛОВНА ЗМІНА ---
-        # Шукаємо за self.api_region_key (правильний ключ з API: kharkivska-oblast),
-        # а не self.region (старий ключ з конфігу: harkivska-oblast)
+        # Шукаємо регіон.
+        # self.api_region_key вже налаштовано в __init__:
+        # - для нових областей це правильний ключ (kharkivska...)
+        # - для старих областей це старий ключ (mikolaivska...)
         regions_list = api.get("regions", [])
         region_obj = next((r for r in regions_list if r.get("cpu") == self.api_region_key), None)
         
         if not region_obj:
-            # Для діагностики виводимо обидва ключі
-            raise ValueError(f"Region '{self.api_region_key}' (cfg: {self.region}) not found in API.")
+            raise ValueError(f"Region '{self.api_region_key}' not found in API response")
 
-        # --- Далі все стандартно ---
+        # --- Стандартна логіка парсингу (без змін) ---
         is_emergency = region_obj.get("emergency", False)
-
         schedule = (region_obj.get("schedule") or {}).get(self.queue) or {}
         slots_today_map = schedule.get(date_today) or {}
         slots_tomorrow_map = schedule.get(date_tomorrow) or {}
 
-        # ... (Код обробки nosched та build_half_list без змін) ...
-        # (Копіюйте з вашого попереднього робочого варіанту, логіка парсингу не змінюється)
-        
-        # Для скорочення відповіді, вставляю тільки початок блоку nosched, 
-        # решту функції _build_from_api залишаєте як було:
-        
         has_any_slots = any(v in (1, 2) for v in slots_today_map.values())
         if not has_any_slots:
              base_day = datetime.fromisoformat(date_today).date() if date_today else dt_util.now(TZ_KYIV).date()
-             # ... повертаємо data_nosched ...
              return {
                 "queue": self.queue,
                 "date": base_day.isoformat(),
                 "now_status": "nosched",
-                # ... інші поля
+                "now_halfhour_index": None,
+                "next_change_at": None,
+                "today_48half": [],
+                "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
+                "source": DTEK_API_URL if self.is_new_api else OLD_API_URL,
+                "next_on_at": None,
+                "next_off_at": None,
                 "is_emergency": is_emergency,
              }
 
@@ -202,7 +237,6 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         cur = today_half[idx] if today_half else "unknown"
         
-        # ... розрахунок next_change ...
         nci = self._next_change_idx(today_half, idx) if today_half else None
         next_change_hhmm = None
         if nci is not None:
@@ -221,7 +255,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "next_change_at": next_change_hhmm,
             "today_48half": today_half,
             "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
-            "source": API_URL,
+            "source": DTEK_API_URL if self.is_new_api else OLD_API_URL,
             "next_on_at": next_on_at,
             "next_off_at": next_off_at,
             "is_emergency": is_emergency,
@@ -233,7 +267,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return data
 
-    # ... методи _localize_kyiv, _schedule_precise_refresh, _next_change_idx, _find_next_at без змін ...
+    # ... методи _localize_kyiv, _schedule_precise_refresh та статичні методи без змін ...
     def _localize_kyiv(self, d: datetime) -> datetime:
         if d.tzinfo is not None:
             return d.astimezone(TZ_KYIV)
