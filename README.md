@@ -3,12 +3,9 @@
 
 [ІНСТРУКЦІЯ З НАЛАШТУВАННЯ СПОВІЩЕНЬ ЗМІНИ ГРАФІКУ](https://github.com/chaichuk/svitlo_live/blob/main/blueprint_manual.uk.md)
 
-An integration for **Home Assistant** that displays the current electricity supply status for your region and queue, based on data from [svitlo.live](https://svitlo.live).
+An integration for **Home Assistant** that displays the current electricity supply status for your region and queue.
 
-**New version (v2)**, which now mainly relies on the **API provided by svitlo.live** instead of HTML parsing.
-The integration has been completely rebuilt — faster, more secure, and much lighter on the server.
-
-**Further iterations of intergration was done due to unreliable data drom svitlo.live. Eventually integration now uses partialy self-hosted mini API for DTEK regions (Kyiv region, Dnipro region, Odesa region), Yasno (Kyiv city, Dnipro city), Lviv region.** 
+**Version 2.8.0** allows changing settings via UI, supports almost all regions via a new unified reliable API, and automatically cleans up old entities.
 
 ---
 
@@ -17,61 +14,85 @@ The integration has been completely rebuilt — faster, more secure, and much li
 - ✅ Displays the **current power status** (`On / Off`),  
 - ✅ Detects the **next power-on** and **power-off** times,  
 - ✅ Shows the time of the **last schedule update**,  
+- ✅ **Unified Reliable API**: Uses a specialized proxy that aggregates data from DTEK/YASNO and other official sources for maximum accuracy.
+- ✅ **Configure via UI**: Change your queue, sub-queue, or update interval on the fly without reinstalling.
+- ✅ **Smart Cleanup**: Automatically removes old entities and devices when you change settings.
 - ✅ Includes **built-in localization** (UA / EN),  
-- ✅ Supports **all regions of Ukraine** and queue/group types (1.1–6.2, 1–6, 1–12),  
-- ✅ Allows **multiple entries** (regions/queues) in a single Home Assistant instance,  
-- ✅ All entries share **one common API request** to reduce network load,  
-- ✅ Provides sensors and binary sensors ideal for automations and dashboards.
+- ✅ Schedules **precise entity state changes** at the exact time of power switch — without calling the API again.
+
+---
+
+## 🌍 Supported Regions (Enhanced API)
+
+The integration now uses own API (thanks to [yaroslav2901](https://github.com/yaroslav2901)) for the following regions, ensuring high reliability:
+
+* **Kyiv City** & **Kyiv Region**
+* **Dnipro City** (Dnem & CEK) & **Dnipropetrovsk Region**
+* **Odesa Region**
+* **Lviv Region**
+* **Kharkiv Region**
+* **Poltava Region**
+* **Cherkasy Region**
+* **Chernihiv Region**
+* **Zhytomyr Region**
+* **Sumy Region**
+* **Rivne Region**
+* **Ternopil Region**
+* **Ivano-Frankivsk Region**
+* **Khmelnytskyi Region**
+* **Zakarpattia Region**
+* **Zaporizhzhia Region**
+
+*(Other regions are supported via standard fallback or standard group logic).*
 
 ---
 
 ## 🔄 How It Works
 
 ### 🧩 Integration Architecture
-The integration consists of two layers:
-
-1. **`SvitloApiHub` (api_hub.py)**  
-   A shared API hub for all entries.  
-   - Makes **one HTTP request** to the proxy server (Cloudflare Worker) with the API key.  
-   - Stores the response in a cache for 15 minutes.  
-   - Prevents duplicate requests even when Home Assistant restarts.
-
-2. **`SvitloCoordinator` (coordinator.py)**  
-   A dedicated coordinator for each region/queue.  
-   - Retrieves data from the shared hub (`api_hub`) without additional network requests.
-   - Smart Proxy Selection: Automatically switches between the standard API (for most regions) and the specialized DTEK proxy (for Kyiv, Odesa, and Dnipro), Yasno (Kyiv, Dnipro), Lviv region to ensure maximum reliability.
-   - Processes half-hour slots and builds power states (`on/off`).  
-   - Schedules **precise entity state changes at the exact time of power switch** — without calling the API again.
+1.  **Unified Coordinator:** All regions/queues share a single cached data source to minimize network requests.
+2.  **Smart Caching:** Data is cached for 10-15 minutes. If you have multiple queues setup, they reuse the same downloaded JSON.
+3.  **Precise Ticking:** The integration calculates the next switch time and schedules an internal timer. If the power is off until 18:00, the sensor will switch to "On" exactly at 18:00:00 without waiting for the next API poll.
 
 ### 🕒 Timezone Handling
 - The API returns the schedule in **local Ukrainian time (Europe/Kyiv)**.  
-- The integration converts this to UTC for Home Assistant,  
-  ensuring all times are displayed correctly regardless of your HA timezone.
+- The integration converts this to UTC for Home Assistant, ensuring all times are displayed correctly regardless of your HA timezone.
 
 ---
 
-## 🔐 API Key Protection
+## 🔐 Privacy & Security
 
-The integration **does not expose the API key** anywhere.
+The integration **does not expose any API keys**.
 
-Access to `https://svitlo.live/api/asistant.php` is handled via a secure **Cloudflare Worker** proxy that:
-- stores the `x-api-key` privately in its environment,
-- accepts keyless requests from Home Assistant,
-- forwards the request to `svitlo.live` and returns the JSON response.
-
-For DTEK Regions (Kyiv, Odesa, Dnipro):
-The integration uses a dedicated, highly reliable data source proxy (dtek-api) that aggregates data directly from official DTEK websites, ensuring up-to-date schedules even when standard aggregators might lag.
-
-This allows users to install the integration safely through HACS without exposing any private credentials.
+Access to data is handled via a secure **Cloudflare Worker** proxy that:
+- Aggregates data directly from official utility providers.
+- Returns a standardized JSON response.
+- Requires no private credentials from the user.
 
 ---
 
-## 🧠 Data Refresh Logic
+## ⚙️ Configuration & Usage
 
-- Home Assistant fetches new data **every 15 minutes**.
-- The API response is **cached for 15 minutes** to minimize load.
-- Between updates, the integration **auto-switches states** exactly at the scheduled times (half-hour marks).  
-  For example: if power is scheduled to go off at 17:30, the “Electricity” sensor will change state **precisely at 17:30**, without any additional API calls.
+### Installation via HACS
+The quickest way to install this integration is via [HACS](https://github.com/hacs/integration):
+1. Open HACS → Integrations.
+2. Search for `Svitlo.live` (or add this repo as a custom repository).
+3. Click **Download**.
+4. Restart Home Assistant.
+
+### Adding Integration
+1. Go to **Settings → Devices & Services → Add Integration**.
+2. Search for **Svitlo.live**.
+3. Select your **Region** and **Queue**.
+
+### Changing Queue (New in v3.0)
+You don't need to reinstall the integration to change your queue!
+1. Go to the integration card in Home Assistant.
+2. Click **Configure** (the cogwheel icon ⚙️).
+3. Select the new queue/sub-queue from the list.
+4. (Optional) Adjust the **Scan Interval** (default: 900 seconds / 15 min).
+5. Click **Submit**. 
+   *The integration will reload, delete old entities, and create new ones automatically.*
 
 ---
 
@@ -85,62 +106,15 @@ This allows users to install the integration safely through HACS without exposin
 | ⚠️ **Sensor** | `Next outage` | Next power-off time (if currently on) |
 | 🔄 **Sensor** | `Schedule updated` | Last successful API refresh |
 | 📅 **Calendar** | `calendar.svitlo_<region>_<queue>` |  “💡 Electricity available” events (Kyiv local time) |
-| ⏳ **Minutes to grid connection** | Shows the number of minutes left until the **next power restoration**. Updates every 30 seconds. Visible only when the power is **off**. |
-| ⏱ **Minutes to outage** | Shows the number of minutes left until the **next power cut**. Updates every 30 seconds. Visible only when the power is **on**. |
----
-
-## 🌍 Supported Regions
-
-All regions of Ukraine (except temporarily unavailable ones, e.g., Kherson).  
-For Chernivtsi and Donetsk — “Group N”; others — “Queue N.M”.
-
-Special Note for Dnipro: When selecting Dnipro City, you will be prompted to choose your electricity distribution system operator (DSO):
-
- - Dnipro (DNEM) - Dnipro Grids (Дніпровські електромережі)
-
- - Dnipro (CEK) - Central Energy Company (ЦЕК)
+| ⏳ **Sensor** | `Minutes to grid connection` | Countdown minutes until power restoration. |
+| ⏱ **Sensor** | `Minutes to outage` | Countdown minutes until power cut. |
 
 ---
 
-## 🧰 Installation via HACS
+## 🤝 Credits
 
-[hacs-url]: https://github.com/hacs/integration
-[hacs-image]: https://img.shields.io/badge/hacs-default-orange.svg?style=flat-square
-[hasc-install-url]: https://my.home-assistant.io/redirect/hacs_repository/?owner=chaichuk&repository=svitlo_live&category=Integration
-[hacs-install-image]: https://my.home-assistant.io/badges/hacs_repository.svg
-
-The quickest way to install this integration is via [HACS][hacs-url] by clicking the button below:
-
-[![Add to HACS via My Home Assistant][hacs-install-image]][hasc-install-url]
-
-### Manual installation:
-1. Open HACS → **Integrations → Custom repositories**.  
-2. Add this repository:
-   ```
-   https://github.com/chaichuk/svitlo_live
-   ```
-   (type: *Integration*).  
-3. Install `Svitlo.live` and restart Home Assistant.  
-4. Go to `Settings → Devices & Services → + Add Integration → Svitlo.live`  
-   and select your region and queue.
-
----
-
-## ⚡ Usage Example
-
-### Automation: Notify when power goes off
-```yaml
-alias: Alert before blackout
-trigger:
-  - platform: state
-    entity_id: binary_sensor.svitlo_kiivska_oblast_3_2_electricity_status
-    to: 'off'
-action:
-  - service: notify.mobile_app
-    data:
-      title: "⚡ Power outage"
-      message: "Electricity has been turned off in queue 3.2"
-```
+* **[yaroslav2901](https://github.com/yaroslav2901)** — for developing the comprehensive DTEK/YASNO parsers that power the new unified API.
+* **[vladmokryi](https://github.com/vladmokryi)** — for the initiative and contribution regarding the Poltava region update.
 
 ## 💡 Author
 
