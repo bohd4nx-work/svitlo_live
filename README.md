@@ -24,7 +24,7 @@ An integration for **Home Assistant** that displays the current electricity supp
 
 ## 🌍 Supported Regions (Enhanced API)
 
-The integration now uses own API (thanks to [yaroslav2901](https://github.com/yaroslav2901)) for the following regions, ensuring high reliability:
+The integration now uses own API (thanks to [yaroslav2901](https://github.com/yaroslav2901) for the multiple regions parser) for the following regions, ensuring high reliability:
 
 * **Kyiv City** & **Kyiv Region**
 * **Dnipro City** (Dnem & CEK) & **Dnipropetrovsk Region**
@@ -43,7 +43,7 @@ The integration now uses own API (thanks to [yaroslav2901](https://github.com/ya
 * **Zakarpattia Region**
 * **Zaporizhzhia Region**
 
-*(Other regions are supported via standard fallback or standard group logic).*
+*(Other regions are supported via svitlo.live API).*
 
 ---
 
@@ -113,7 +113,7 @@ You don't need to reinstall the integration to change your queue!
 
 ## 🤝 Credits
 
-* **[yaroslav2901](https://github.com/yaroslav2901)** — for developing the comprehensive DTEK/YASNO parsers that power the new unified API.
+* **[yaroslav2901](https://github.com/yaroslav2901)** — for developing the comprehensive parsers.
 * **[vladmokryi](https://github.com/vladmokryi)** — for the initiative and contribution regarding the Poltava region update.
 
 ## 💡 Author
