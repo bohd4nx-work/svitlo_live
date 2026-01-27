@@ -69,6 +69,13 @@ blueprint:
       selector:
         object:
 
+    telegram_config_entry_id:
+      name: Telegram Bot Config Entry ID
+      description: "Для нових unified ботів (опціонально). Якщо у вас кілька ботів, вкажіть ID конфігурації"
+      default: ""
+      selector:
+        text:
+
     region_image_url:
       name: URL зображення регіону
       description: "Якщо вказано — буде надіслано фото з цим URL і підписом-графіком. Можна звідси https://github.com/Baskerville42/outage-data-ua/tree/main/images"
@@ -116,6 +123,7 @@ actions:
       telegram_storage: !input telegram_storage
       svitlobot_storage: !input svitlobot_storage
       title_text: !input notification_title
+      telegram_config_entry_id: !input telegram_config_entry_id
       region_queue: >
         {% set parts = cal_entity.split('_') %}
         {% if parts | length >= 4 %}
@@ -178,6 +186,7 @@ actions:
               sequence:
                 - action: telegram_bot.delete_message
                   data:
+                    config_entry_id: "{{ telegram_config_entry_id if telegram_config_entry_id != '' else omit }}"
                     chat_id: "{{ repeat.item[0] }}"
                     message_id: "{{ repeat.item[1] }}"
                   continue_on_error: true
@@ -236,6 +245,7 @@ actions:
         then:
           - action: telegram_bot.send_photo
             data:
+              config_entry_id: "{{ telegram_config_entry_id if telegram_config_entry_id != '' else omit }}"
               verify_ssl: true
               parse_mode: markdown
               target: !input telegram_chat_ids
@@ -246,6 +256,7 @@ actions:
         else:
           - action: telegram_bot.send_message
             data:
+              config_entry_id: "{{ telegram_config_entry_id if telegram_config_entry_id != '' else omit }}"
               target: !input telegram_chat_ids
               message: "{{ body }}"
               disable_notification: true
