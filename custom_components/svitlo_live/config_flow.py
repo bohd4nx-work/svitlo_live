@@ -143,11 +143,7 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
         current_queue = self._config_entry.data.get(CONF_QUEUE)
         current_interval = self._config_entry.options.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL)
 
-        schema = {
-            vol.Optional("scan_interval_seconds", default=current_interval): vol.All(
-                vol.Coerce(int), vol.Range(min=60, max=3600)
-            )
-        }
+        schema = {}
         
         if queue_options:
             schema[vol.Required(CONF_QUEUE, default=current_queue)] = selector({
