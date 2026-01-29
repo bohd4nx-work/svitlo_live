@@ -6,12 +6,15 @@ from typing import Any, Dict, List
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import selector
+from homeassistant.helpers import entity_registry as er
 
 from .api_hub import SvitloApiHub
 from .const import (
     DOMAIN, 
     CONF_REGION, 
+    CONF_REGION, 
     CONF_QUEUE, 
+    CONF_PRESERVE_ID,
     DEFAULT_SCAN_INTERVAL
 )
 
@@ -124,6 +127,45 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
             if CONF_QUEUE in user_input:
                 new_data[CONF_QUEUE] = user_input[CONF_QUEUE]
             
+            # --- MIGRATION LOGIC START ---
+            if user_input.get(CONF_PRESERVE_ID):
+                old_region = self._config_entry.data.get(CONF_REGION)
+                old_queue = self._config_entry.data.get(CONF_QUEUE)
+                new_queue = new_data.get(CONF_QUEUE)
+                
+                # Only if queue changed and region is present (it should be)
+                if old_queue and new_queue and old_queue != new_queue:
+                    registry = er.async_get(self.hass)
+                    entry_id = self._config_entry.entry_id
+                    
+                    # List of patterns used in sensor.py and binary_sensor.py
+                    # usage: pattern.format(region, queue)
+                    patterns = [
+                        "svitlo_status_{}_{}",
+                        "svitlo_next_grid_{}_{}",
+                        "svitlo_next_off_{}_{}",
+                        "svitlo_next_power_on_{}_{}",
+                        "svitlo_next_power_off_{}_{}",
+                        "svitlo_min_to_on_{}_{}",
+                        "svitlo_min_to_off_{}_{}",
+                        "svitlo_updated_{}_{}",
+                        # Binary sensors use entry_id prefix
+                        f"{entry_id}_power_{{}_{{}}",
+                        f"{entry_id}_emergency_{{}_{{}}",
+                    ]
+
+                    for pat in patterns:
+                        old_uid = pat.format(old_region, old_queue)
+                        new_uid = pat.format(old_region, new_queue)
+                        
+                        # Try to find entity in registry for likely platforms
+                        for platform in ["sensor", "binary_sensor"]:
+                            entity_id = registry.async_get_entity_id(platform, DOMAIN, old_uid)
+                            if entity_id:
+                                registry.async_update_entity(entity_id, new_unique_id=new_uid)
+                                break
+            # --- MIGRATION LOGIC END ---
+
             new_title = self._config_entry.title
             if region_node:
                 new_title = f"{region_node['name']} / {new_data[CONF_QUEUE]}"
@@ -148,6 +190,10 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
         if queue_options:
             schema[vol.Required(CONF_QUEUE, default=current_queue)] = selector({
                 "select": {"options": queue_options, "mode": "dropdown"}
+            })
+            # Add preserve ID checkbox
+            schema[vol.Optional(CONF_PRESERVE_ID, default=False)] = selector({
+                "boolean": {}
             })
 
         return self.async_show_form(

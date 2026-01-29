@@ -13,6 +13,7 @@ DEFAULT_SCAN_INTERVAL = 900
 CONF_REGION = "region"
 CONF_QUEUE = "queue"
 CONF_OPERATOR = "operator"
+CONF_PRESERVE_ID = "preserve_id"
 
 # Static mappings are deprecated in favor of dynamic fetching, but kept for migration if needed.
 API_REGION_MAP = {
