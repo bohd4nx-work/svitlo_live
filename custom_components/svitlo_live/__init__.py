@@ -30,6 +30,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Svitlo.live v2 from a config entry."""
     # Ініціалізація хаба
+    hass.data.setdefault(DOMAIN, {})
     if "hub" not in hass.data[DOMAIN]:
         from .api_hub import SvitloApiHub
         hass.data[DOMAIN]["hub"] = SvitloApiHub(hass)
