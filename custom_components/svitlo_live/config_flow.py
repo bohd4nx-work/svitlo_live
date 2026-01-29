@@ -152,6 +152,7 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
                         # Binary sensors use entry_id prefix
                         f"{entry_id}_power_{{}}_{{}}",
                         f"{entry_id}_emergency_{{}}_{{}}",
+                        "svitlo_calendar_{}_{}",
                     ]
 
                     for pat in patterns:
@@ -159,7 +160,7 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
                         new_uid = pat.format(old_region, new_queue)
                         
                         # Try to find entity in registry for likely platforms
-                        for platform in ["sensor", "binary_sensor"]:
+                        for platform in ["sensor", "binary_sensor", "calendar"]:
                             entity_id = registry.async_get_entity_id(platform, DOMAIN, old_uid)
                             if entity_id:
                                 registry.async_update_entity(entity_id, new_unique_id=new_uid)
