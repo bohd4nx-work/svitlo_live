@@ -13,7 +13,7 @@
 ---
 An integration for **Home Assistant** that displays the current electricity supply status for your region and queue.
 
-**Version 2.8.0** allows changing settings via UI, supports almost all regions via a new unified reliable API, and automatically cleans up old entities.
+**Version 2.8.6** allows changing settings via UI (with optional preserving old IDs), supports almost all regions via a new unified reliable API, and automatically cleans up old entities.
 
 ---
 
@@ -42,6 +42,7 @@ The integration now uses own API (thanks to [yaroslav2901](https://github.com/ya
 * **Poltava Region**
 * **Cherkasy Region**
 * **Chernihiv Region**
+* **Chernivtsi Region**
 * **Zhytomyr Region**
 * **Sumy Region**
 * **Rivne Region**
