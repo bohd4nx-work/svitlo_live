@@ -3,6 +3,14 @@
 
 [ІНСТРУКЦІЯ З НАЛАШТУВАННЯ СПОВІЩЕНЬ ЗМІНИ ГРАФІКУ](https://github.com/chaichuk/svitlo_live/blob/main/blueprint_manual.uk.md)
 
+# ❗❗❗
+
+### The number of users and requests to API which is hosting schedules is constantly growing. I maintain this project personally in my free time. However, the free server is reaching its limits, so I need to upgrade to a paid version. While the costs are manageable and I can cover them myself, I’ve opened a donation jar. If you would like to support the project and ensure its stability, you can do so by clicking the jar image ⬇ 
+<a href="https://send.monobank.ua/jar/2Eg6Sgi3JQ">
+  <img src="https://github.com/user-attachments/assets/b751e762-001e-4291-85e6-a574abf8b62c" width="150" alt="SWUbanner">
+</a>
+
+---
 An integration for **Home Assistant** that displays the current electricity supply status for your region and queue.
 
 **Version 2.8.0** allows changing settings via UI, supports almost all regions via a new unified reliable API, and automatically cleans up old entities.
