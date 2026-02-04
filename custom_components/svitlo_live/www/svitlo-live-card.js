@@ -112,12 +112,12 @@ class SvitloLiveCard extends HTMLElement {
             </div>
 
             <div id="stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; min-height: 56px; box-sizing: border-box;">
-                <div id="total-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.2;">Всього без світла</div>
+              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 12px 10px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; min-height: 52px; box-sizing: border-box;">
+                <div id="total-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.1;">Всього без світла</div>
                 <div id="total-hours" style="font-size: 16px; font-weight: bold; line-height: 1.1;">- год</div>
               </div>
-              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 12px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; min-height: 56px; box-sizing: border-box;">
-                <div id="next-change-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.2;">Наступна зміна</div>
+              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 12px 10px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; min-height: 52px; box-sizing: border-box;">
+                <div id="next-change-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.1;">Наступна зміна</div>
                 <div id="next-change" style="font-size: 16px; font-weight: bold; line-height: 1.1;">-:-</div>
               </div>
             </div>
@@ -193,15 +193,29 @@ class SvitloLiveCard extends HTMLElement {
         statusEl.style.color = '#fff';
       }
 
-      // History Status (Today ONLY)
-      const now = new Date();
-      const currentIndex = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
+      // History Label Logic
       if (historyLabelEl && schedule.length === 48) {
+        const now = new Date();
+        const currentIndex = now.getHours() * 2 + (now.getMinutes() >= 30 ? 1 : 0);
         let chIdx = currentIndex;
-        const curSt = schedule[currentIndex];
-        while (chIdx > 0 && schedule[chIdx - 1] === curSt) chIdx--;
+        const targetState = isOffBySchedule ? 'off' : 'on';
+
+        while (chIdx > 0 && schedule[chIdx - 1] === targetState) chIdx--;
+
+        if (schedule[currentIndex] !== targetState && chIdx === currentIndex) {
+          for (let i = currentIndex; i >= 0; i--) {
+            if (schedule[i] === targetState) {
+              chIdx = i;
+              while (chIdx > 0 && schedule[chIdx - 1] === targetState) chIdx--;
+              break;
+            }
+          }
+        }
+
         const time = `${Math.floor(chIdx / 2).toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
-        historyLabelEl.innerText = (curSt === 'off') ? `Світла немає з ${time}` : `Світло ввімкнули о ${time}`;
+        historyLabelEl.innerText = isOffBySchedule
+          ? `Світла немає з ${time}`
+          : `Світло ввімкнули о ${time}`;
       }
 
       // Emergency Banner (Today ONLY)
