@@ -12,12 +12,10 @@ class SvitloLiveCardEditor extends HTMLElement {
   _render() {
     if (!this._hass || !this._config) return;
 
-    // 1. Фільтрація: знаходимо календарі
     const entities = Object.keys(this._hass.states).filter((eid) => {
       return eid.startsWith("calendar.svitlo_");
     });
 
-    // 2. Створюємо каркас HTML тільки один раз
     if (!this._initialized) {
       this.innerHTML = `
         <div style="padding: 10px; display: flex; flex-direction: column; gap: 12px; color: var(--primary-text-color);">
@@ -53,9 +51,13 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-switch id="priority-switch"></ha-switch>
           </ha-formfield>
 
-          <p style="font-size: 12px; opacity: 0.8; margin-top: 4px;">
-            Якщо активовано, банер «Є СВІТЛО / НЕМАЄ СВІТЛА» і час будуть базуватися <b>тільки</b> на вашому фізичному сенсорі, ігноруючи графік.
-          </p>
+          <ha-formfield label="Динамічний таймлайн (показувати наступні 24 години, якщо графік опубліковано)" style="display: flex; align-items: center; margin-top: 8px;">
+            <ha-switch id="dynamic-switch"></ha-switch>
+          </ha-formfield>
+
+          <ha-formfield label="Показувати попередній графік (історію)" style="display: flex; align-items: center; margin-top: 8px;">
+            <ha-switch id="history-switch"></ha-switch>
+          </ha-formfield>
         </div>
       `;
 
@@ -64,14 +66,11 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._initialized = true;
     }
 
-    // 3. Динамічно оновлюємо список опцій
     const selector = this.querySelector("#entity-selector");
     if (selector) {
       const currentCount = parseInt(selector.dataset.count || "0");
-
       if (currentCount !== entities.length || selector.options.length <= 1) {
         const currentVal = this._config.entity || "";
-
         const optionsHtml = `
               <option value="" ${!currentVal ? "selected" : ""}>--- Оберіть зі списку (${entities.length} знайдено) ---</option>
               ${entities.sort().map(eid => {
@@ -80,14 +79,10 @@ class SvitloLiveCardEditor extends HTMLElement {
           return `<option value="${eid}">${friendlyName}</option>`;
         }).join('')}
             `;
-
         selector.innerHTML = optionsHtml;
         selector.dataset.count = entities.length;
       }
-
-      if (this._config.entity) {
-        selector.value = this._config.entity;
-      }
+      if (this._config.entity) selector.value = this._config.entity;
     }
 
     this._updateProperties();
@@ -96,95 +91,65 @@ class SvitloLiveCardEditor extends HTMLElement {
   _setupPicker() {
     const container = this.querySelector("#status-picker-container");
     if (!container) return;
-
-    // Створюємо нативний ha-selector
     const selector = document.createElement("ha-selector");
     selector.id = "status-selector";
     selector.style.width = "100%";
     selector.style.display = "block";
-
-    // Конфігурація для вибору ентіті
-    selector.selector = {
-      entity: {
-        domain: ['binary_sensor', 'sensor', 'switch', 'input_boolean']
-      }
-    };
-
+    selector.selector = { entity: { domain: ['binary_sensor', 'sensor', 'switch', 'input_boolean'] } };
     selector.addEventListener("value-changed", (ev) => {
       this._valueChanged({ target: { configValue: 'status_entity', value: ev.detail.value } });
     });
-
     container.innerHTML = "";
     container.appendChild(selector);
   }
 
   _setupEventListeners() {
     const titleInput = this.querySelector("#title-input");
-    if (titleInput) {
-      titleInput.addEventListener("input", (ev) => {
-        this._valueChanged({ target: { configValue: 'title', value: ev.target.value } });
-      });
-    }
+    if (titleInput) titleInput.addEventListener("input", (ev) => this._valueChanged({ target: { configValue: 'title', value: ev.target.value } }));
 
     const selector = this.querySelector("#entity-selector");
-    if (selector) {
-      selector.addEventListener("change", (ev) => {
-        this._valueChanged({ target: { configValue: 'entity', value: ev.target.value } });
-      });
-    }
-
-    const statusSelector = this.querySelector("#status-selector");
-    if (statusSelector) {
-      statusSelector.addEventListener("value-changed", (ev) => {
-        this._valueChanged({ target: { configValue: 'status_entity', value: ev.detail.value } });
-      });
-    }
+    if (selector) selector.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'entity', value: ev.target.value } }));
 
     const prioritySwitch = this.querySelector("#priority-switch");
-    if (prioritySwitch) {
-      prioritySwitch.addEventListener("change", (ev) => {
-        this._valueChanged({ target: { configValue: 'use_status_entity', value: ev.target.checked } });
-      });
-    }
+    if (prioritySwitch) prioritySwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'use_status_entity', value: ev.target.checked } }));
+
+    const dynamicSwitch = this.querySelector("#dynamic-switch");
+    if (dynamicSwitch) dynamicSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'dynamic_timeline', value: ev.target.checked } }));
+
+    const historySwitch = this.querySelector("#history-switch");
+    if (historySwitch) historySwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_history', value: ev.target.checked } }));
   }
 
   _updateProperties() {
     if (!this._hass || !this._config) return;
-
     const titleInput = this.querySelector("#title-input");
-    if (titleInput) {
-      titleInput.value = this._config.title || '';
-    }
-
+    if (titleInput) titleInput.value = this._config.title || '';
     const statusSelector = this.querySelector("#status-selector");
-    if (statusSelector) {
-      statusSelector.hass = this._hass;
-      statusSelector.value = this._config.status_entity || '';
-    }
+    if (statusSelector) { statusSelector.hass = this._hass; statusSelector.value = this._config.status_entity || ''; }
 
-    const prioritySwitch = this.querySelector("#priority-switch");
-    if (prioritySwitch) {
-      prioritySwitch.checked = this._config.use_status_entity || false;
-    }
+    const ps = this.querySelector("#priority-switch");
+    if (ps) ps.checked = this._config.use_status_entity || false;
+
+    const ds = this.querySelector("#dynamic-switch");
+    if (ds) ds.checked = this._config.dynamic_timeline || false;
+
+    const hs = this.querySelector("#history-switch");
+    if (hs) hs.checked = this._config.show_history || false;
   }
 
   _valueChanged(ev) {
     if (!this._config || !this._hass) return;
     const target = ev.target;
     if (this._config[target.configValue] === target.value) return;
-
     const newConfig = { ...this._config, [target.configValue]: target.value };
-    this.dispatchEvent(new CustomEvent("config-changed", {
-      detail: { config: newConfig },
-      bubbles: true,
-      composed: true,
-    }));
+    this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
   }
 }
-
 customElements.define('svitlo-live-card-editor', SvitloLiveCardEditor);
 
-// Svitlo Live Card
+
+// --- MAIN CARD CLASS ---
+
 class SvitloLiveCard extends HTMLElement {
   constructor() {
     super();
@@ -194,14 +159,15 @@ class SvitloLiveCard extends HTMLElement {
   set hass(hass) {
     if (!this.content) {
       this.innerHTML = `
-        <ha-card>
+        <ha-card style="overflow: hidden;">
           <div id="container" style="padding: 16px;">
+            
             <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
               <div style="display: flex; flex-direction: column; gap: 2px; max-width: 60%;">
                 <div id="title" style="font-size: 18px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Svitlo.live</div>
                 <div id="history-label" style="font-size: 11px; opacity: 0.6; white-space: nowrap; height: 1.2em;"></div>
               </div>
-              <div id="status" style="font-size: 13px; padding: 4px 10px; border-radius: 4px; font-weight: bold; white-space: nowrap; align-self: center;"></div>
+              <div id="status" style="font-size: 13px; padding: 4px 10px; border-radius: 4px; font-weight: bold; white-space: nowrap; align-self: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></div>
             </div>
 
             <div id="day-switcher" style="display: flex; gap: 4px; border-radius: 6px; background: rgba(127,127,127,0.1); padding: 2px; margin-bottom: 12px; font-size: 11px; width: fit-content;">
@@ -209,36 +175,94 @@ class SvitloLiveCard extends HTMLElement {
               <div class="day-tab" data-day="tomorrow" id="tomorrow-tab" style="padding: 4px 10px; border-radius: 4px; cursor: pointer; transition: 0.2s; display: none;">Завтра</div>
             </div>
 
-            <div id="emergency-banner" style="display: none; background: #ff9800; color: #fff; padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 8px; text-align: center; animation: pulse 2s infinite; border: 1px solid rgba(255,255,255,0.2);">
-              📢 УВАГА! ДІЮТЬ ЕКСТРЕННІ ВІДКЛЮЧЕННЯ!
+            <div id="emergency-banner" style="display: none; background: #bf360c; color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 12px; text-align: center; animation: pulse 2s infinite; border: 1px solid rgba(255,255,255,0.2); box-shadow: 0 2px 5px rgba(191, 54, 12, 0.4);">
+              📢 УВАГА! ДІЮТЬ ЕКСТРЕНІ ВІДКЛЮЧЕННЯ!
             </div>
             
-            <div style="margin-bottom: 24px;">
-              <div id="timeline" style="height: 36px; display: flex; border-radius: 6px; overflow: hidden; position: relative; background: #eee; border-left: 3px solid rgba(255,255,255,0.8); border-right: 3px solid rgba(255,255,255,0.8);">
-                <div id="now-marker" style="position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 4px rgba(0,0,0,0.5); z-index: 2;"></div>
+            <div style="margin-bottom: 10px;">
+              <div id="timeline" style="
+                  height: 38px; 
+                  display: flex; 
+                  border-radius: 8px; 
+                  overflow: hidden; 
+                  position: relative; 
+                  background: #1a1a1a; 
+                  border: 1px solid rgba(255,255,255,0.05);
+                  box-shadow: inset 0 2px 5px rgba(0,0,0,0.5); 
+                  z-index: 5;
+              ">
+                <div id="now-marker" style="
+                    position: absolute; 
+                    top: 0; bottom: 0; 
+                    width: 2px; 
+                    background: #fff; 
+                    box-shadow: 0 0 8px rgba(255,255,255,0.8), 2px 0 4px rgba(0,0,0,0.5); 
+                    z-index: 10;
+                "></div>
               </div>
-              <div id="ruler" style="height: 16px; position: relative; font-size: 10px; opacity: 0.7; margin-top: 4px;">
+              
+              <div id="history-timeline" style="
+                  display: none; 
+                  flex-direction: column; 
+                  margin-top: 2px; 
+              "></div>
+              
+              <div id="ruler" style="height: 32px; position: relative; font-size: 10px; opacity: 0.6; margin-top: 6px; font-family: monospace;">
               </div>
             </div>
 
             <div id="stats" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 10px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 60px; box-sizing: border-box; text-align: center;">
-                <div id="total-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 8px; line-height: 1.1;">Всього без світла</div>
-                <div id="total-hours" style="font-size: 16px; font-weight: bold; line-height: 1.1;">- год</div>
+              <div class="stat-item" style="
+                  background: rgba(127,127,127,0.05); 
+                  border: 1px solid rgba(127,127,127,0.1);
+                  padding: 6px 8px; 
+                  border-radius: 8px; 
+                  display: flex; 
+                  flex-direction: column; 
+                  justify-content: center; 
+                  align-items: center; 
+                  min-height: 48px; 
+                  text-align: center;
+              ">
+                <div id="total-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.1;">Всього без світла</div>
+                <div id="total-hours" style="font-size: 16px; font-weight: bold; color: var(--primary-text-color); line-height: 1.1;">-- год</div>
               </div>
-              <div class="stat-item" style="background: rgba(127,127,127,0.1); padding: 10px; border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 60px; box-sizing: border-box; text-align: center;">
-                <div id="next-change-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 8px; line-height: 1.1;">Наступна зміна</div>
-                <div id="next-change" style="font-size: 16px; font-weight: bold; line-height: 1.1;">-:-</div>
+
+              <div class="stat-item" style="
+                  background: rgba(127,127,127,0.05); 
+                  border: 1px solid rgba(127,127,127,0.1);
+                  padding: 6px 8px; 
+                  border-radius: 8px; 
+                  display: flex; 
+                  flex-direction: column; 
+                  justify-content: center; 
+                  align-items: center; 
+                  min-height: 48px; 
+                  text-align: center;
+              ">
+                <div id="next-change-label" style="font-size: 11px; opacity: 0.6; margin-bottom: 2px; line-height: 1.1;">Наступна зміна</div>
+                <div id="next-change" style="font-size: 16px; font-weight: bold; color: var(--primary-text-color); line-height: 1.1;">--:--</div>
               </div>
             </div>
+
           </div>
           <style>
             .day-tab.active { background: var(--primary-color, #03a9f4); color: #fff; }
             .day-tab:not(.active):hover { background: rgba(127,127,127,0.2); }
             @keyframes pulse {
               0% { opacity: 1; transform: scale(1); }
-              50% { opacity: 0.85; transform: scale(0.995); }
+              50% { opacity: 0.9; transform: scale(0.99); }
               100% { opacity: 1; transform: scale(1); }
+            }
+            .timeline-block {
+               position: relative;
+            }
+            .timeline-block::after {
+               content: "";
+               position: absolute;
+               top: 0; left: 0; right: 0; bottom: 0;
+               background: linear-gradient(180deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0) 100%);
+               pointer-events: none;
             }
           </style>
         </ha-card>
@@ -262,70 +286,73 @@ class SvitloLiveCard extends HTMLElement {
 
     const stateObj = hass.states[config.entity];
     const attrs = stateObj.attributes;
-    const isToday = this._selectedDay === 'today';
 
-    // Tabs update
-    const tabs = this.querySelectorAll('.day-tab');
-    tabs.forEach(t => t.classList.toggle('active', t.dataset.day === this._selectedDay));
-
-    // Show switcher only if tomorrow data exists
-    const daySwitcher = this.querySelector('#day-switcher');
+    const kyivDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+    const currentIdx = kyivDate.getHours() * 2 + (kyivDate.getMinutes() >= 30 ? 1 : 0);
     const tomorrowSch = attrs.tomorrow_48half || [];
     const hasTomorrow = tomorrowSch.length === 48;
 
-    if (daySwitcher) {
-      daySwitcher.style.display = hasTomorrow ? 'flex' : 'none';
-    }
+    const isDynamic = config.dynamic_timeline && hasTomorrow;
+    const isToday = this._selectedDay === 'today';
 
+    const daySwitcher = this.querySelector('#day-switcher');
     const tomorrowTab = this.querySelector('#tomorrow-tab');
-    if (tomorrowTab) {
-      tomorrowTab.style.display = hasTomorrow ? 'block' : 'none';
-    }
-
-    // Header Title
-    const titleEl = this.querySelector('#title');
-    if (titleEl) {
-      titleEl.innerText = config.title || (attrs.friendly_name || "Svitlo.live").replace("Svitlo • ", "").replace(" Outages Schedule", "");
-    }
-
-    // Schedule & Status
-    const schedule = isToday ? (attrs.today_48half || []) : tomorrowSch;
+    const tabs = this.querySelectorAll('.day-tab');
     const historyLabelEl = this.querySelector('#history-label');
     const statusEl = this.querySelector('#status');
     const eb = this.querySelector('#emergency-banner');
+    const nowMarker = this.querySelector('#now-marker');
 
-    if (isToday) {
-      // Status Today
-      let isOffCurrent = attrs.now_status === 'off';
+    if (daySwitcher) {
+      if (isDynamic) {
+        daySwitcher.style.display = 'none';
+      } else {
+        daySwitcher.style.display = hasTomorrow ? 'flex' : 'none';
+        if (tomorrowTab) tomorrowTab.style.display = hasTomorrow ? 'block' : 'none';
+      }
+    }
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.day === this._selectedDay));
+
+    const titleEl = this.querySelector('#title');
+    if (titleEl) titleEl.innerText = config.title || (attrs.friendly_name || "Svitlo.live").replace("Svitlo • ", "").replace(" Outages Schedule", "");
+
+    let schedule = [];
+    let startOffsetIdx = 0;
+
+    const LOOKBACK_SLOTS = 3;
+
+    if (isDynamic) {
+      startOffsetIdx = Math.max(0, currentIdx - LOOKBACK_SLOTS);
+      const todayPart = (attrs.today_48half || []).slice(startOffsetIdx);
+      const neededForFullDay = 48 - todayPart.length;
+      const tomorrowPart = tomorrowSch.slice(0, neededForFullDay);
+      schedule = [...todayPart, ...tomorrowPart];
+    } else {
+      schedule = isToday ? (attrs.today_48half || []) : tomorrowSch;
+      startOffsetIdx = 0;
+    }
+
+    let isOffCurrent = false;
+
+    if (isToday || isDynamic) {
+      const schedState = (attrs.today_48half && attrs.today_48half[currentIdx]) ? attrs.today_48half[currentIdx] : 'unknown';
+      isOffCurrent = (schedState === 'off');
+
       let statusLabel = isOffCurrent ? 'ПЛАНОВЕ ВІДКЛЮЧЕННЯ' : 'Є СВІТЛО';
-      let statusColor = isOffCurrent ? '#ff9800' : '#66bb6a';
+      let statusColor = isOffCurrent ? '#bf360c' : '#1b5e20';
 
-      // Custom sensor override
-      const statusEntityId = config.status_entity;
-      const customStatusEntity = statusEntityId ? hass.states[statusEntityId] : null;
-      const usePhysicalPriority = config.use_status_entity && customStatusEntity;
-
+      const customStatusEntity = config.status_entity ? hass.states[config.status_entity] : null;
       if (customStatusEntity) {
         const cs = customStatusEntity.state;
         const isOffFact = (cs === 'off' || cs === 'Grid OFF' || cs === 'Grid-OFF' || cs === 'unavailable' || cs === '0');
-        const isOnFact = (cs === 'on' || cs === 'Grid ON' || cs === 'Grid-ON' || cs === 'running' || cs === '1');
 
-        if (usePhysicalPriority) {
-          if (isOffFact) {
-            isOffCurrent = true;
-            statusLabel = 'НЕМАЄ СВІТЛА';
-            statusColor = '#ef5350'; // Red for fact
-          } else {
-            isOffCurrent = false;
-            statusLabel = 'Є СВІТЛО';
-            statusColor = '#66bb6a'; // Green for fact
-          }
-        } else {
-          // Legacy behavior: only highlight mismatch if not prioritized
-          if (isOffFact && !isOffCurrent) {
-            statusLabel = 'НЕМАЄ СВІТЛА (ФАКТ)';
-            statusColor = '#ef5350';
-          }
+        if (config.use_status_entity) {
+          isOffCurrent = isOffFact;
+          statusLabel = isOffFact ? 'НЕМАЄ СВІТЛА' : 'Є СВІТЛО';
+          statusColor = isOffFact ? '#7f0000' : '#1b5e20';
+        } else if (isOffFact && !isOffCurrent) {
+          statusLabel = 'НЕМАЄ СВІТЛА (ФАКТ)';
+          statusColor = '#7f0000';
         }
       }
 
@@ -335,187 +362,315 @@ class SvitloLiveCard extends HTMLElement {
         statusEl.style.color = '#fff';
       }
 
-      // History Label Logic
-      if (historyLabelEl && schedule.length === 48) {
-        const kyivTime = new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" });
-        const kyivDate = new Date(kyivTime);
-        const hours = kyivDate.getHours();
-        const minutes = kyivDate.getMinutes();
-        const currentIndex = hours * 2 + (minutes >= 30 ? 1 : 0);
-
-        const scheduleState = schedule[currentIndex];
-        const actualState = isOffCurrent ? 'off' : 'on';
-        const isFactMismatch = scheduleState !== actualState;
-
-        if (usePhysicalPriority) {
-          // Use last_changed from custom sensor
-          const lastChanged = new Date(customStatusEntity.last_changed);
-          const hh = lastChanged.getHours().toString().padStart(2, '0');
-          const mm = lastChanged.getMinutes().toString().padStart(2, '0');
-          historyLabelEl.innerText = isOffCurrent
-            ? `Світла немає з ${hh}:${mm}`
-            : `Світло ввімкнули о ${hh}:${mm}`;
-        } else if (isFactMismatch) {
-          historyLabelEl.innerText = isOffCurrent
-            ? `Відключено (за фактом)`
-            : `Світло є (поза графіком)`;
+      if (historyLabelEl && schedule.length >= 1) {
+        const fullToday = attrs.today_48half || [];
+        if (config.use_status_entity && customStatusEntity) {
+          const lc = new Date(customStatusEntity.last_changed);
+          historyLabelEl.innerText = `${isOffCurrent ? 'Світла немає з' : 'Світло ввімкнули о'} ${lc.getHours().toString().padStart(2, '0')}:${lc.getMinutes().toString().padStart(2, '0')}`;
+        } else if (schedState !== (isOffCurrent ? 'off' : 'on')) {
+          historyLabelEl.innerText = isOffCurrent ? `Відключено (за фактом)` : `Світло є (поза графіком)`;
         } else {
-          let chIdx = currentIndex;
-          while (chIdx > 0 && schedule[chIdx - 1] === actualState) chIdx--;
-          const time = `${Math.floor(chIdx / 2).toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
-          historyLabelEl.innerText = isOffCurrent
-            ? `Світла немає з ${time}`
-            : `Світло ввімкнули о ${time}`;
+          let chIdx = currentIdx;
+          const targetState = isOffCurrent ? 'off' : 'on';
+          while (chIdx > 0 && fullToday[chIdx - 1] === targetState) chIdx--;
+          historyLabelEl.innerText = `${isOffCurrent ? 'Світла немає з' : 'Світло ввімкнули о'} ${Math.floor(chIdx / 2).toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
         }
       }
 
-      // Emergency Banner (Today ONLY)
       let isEmergency = false;
-      const region = attrs.region;
-      const queue = attrs.queue;
-      if (region && queue) {
-        const emEid = Object.keys(hass.states).find(eid => {
-          const s = hass.states[eid];
-          return eid.includes('emergency') && s.attributes && s.attributes.region === region && s.attributes.queue === queue;
-        });
+      if (attrs.region && attrs.queue) {
+        const emEid = Object.keys(hass.states).find(eid => eid.includes('emergency') && hass.states[eid].attributes?.region === attrs.region && hass.states[eid].attributes?.queue === attrs.queue);
         if (emEid) isEmergency = hass.states[emEid].state === 'on';
       }
       if (eb) eb.style.display = isEmergency ? 'block' : 'none';
 
     } else {
-      // Status Tomorrow
       if (statusEl) {
         statusEl.innerText = 'ГРАФІК НА ЗАВТРА';
-        statusEl.style.background = 'rgba(127,127,127,0.2)';
-        statusEl.style.color = 'inherit';
+        statusEl.style.background = '#333';
+        statusEl.style.color = '#eee';
       }
       if (historyLabelEl) historyLabelEl.innerText = (attrs.tomorrow_date || "");
       if (eb) eb.style.display = 'none';
     }
 
-    // Marker (using Kyiv time)
-    const nowMarker = this.querySelector('#now-marker');
+    // === RENDER TIMELINE ===
     if (nowMarker) {
-      if (isToday) {
-        const kyivTime = new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" });
-        const kyivDate = new Date(kyivTime);
-        const minsSinceMidnight = kyivDate.getHours() * 60 + kyivDate.getMinutes();
+      if (isDynamic) {
+        const diffSlots = currentIdx - startOffsetIdx;
+        const posPercent = (diffSlots / schedule.length) * 100;
         nowMarker.style.display = 'block';
-        nowMarker.style.left = `${(minsSinceMidnight / 1440) * 100}%`;
+        nowMarker.style.left = `${posPercent}%`;
+        nowMarker.style.width = '3px';
+      } else if (isToday) {
+        const minutesOfDay = kyivDate.getHours() * 60 + kyivDate.getMinutes();
+        nowMarker.style.display = 'block';
+        nowMarker.style.left = `${(minutesOfDay / 1440) * 100}%`;
+        nowMarker.style.width = '2px';
       } else {
         nowMarker.style.display = 'none';
       }
     }
 
-    // Timeline & Ruler
     const timelineEl = this.querySelector('#timeline');
+    const historyTimelineEl = this.querySelector('#history-timeline');
     const rulerEl = this.querySelector('#ruler');
-    const scheduleKey = `${this._selectedDay}_${JSON.stringify(schedule)}`;
+
+    const scheduleKey = `${isDynamic ? 'dyn' : this._selectedDay}_${JSON.stringify(schedule)}_${config.show_history}_${startOffsetIdx}`;
 
     if (timelineEl && rulerEl && this._lastRenderedKey !== scheduleKey) {
       this._lastRenderedKey = scheduleKey;
 
-      // Clear
-      timelineEl.querySelectorAll('.block').forEach(b => b.remove());
+      timelineEl.querySelectorAll('.timeline-block').forEach(b => b.remove());
+      timelineEl.querySelectorAll('.midnight-marker').forEach(b => b.remove());
       rulerEl.innerHTML = '';
 
-      // Determine transitions
-      const transitions = [];
+      const totalSlots = schedule.length;
+      let lastOccupiedPos = -20, currentLevel = 0;
+      let lastLabelElement = null;
+      let lastLabelIndex = -100;
+
+      // Identify first and last changes for hiding edges
+      let firstChangeIdx = -1, lastChangeIdx = -1;
       schedule.forEach((state, i) => {
         if (i > 0 && schedule[i] !== schedule[i - 1]) {
-          transitions.push(i);
+          if (firstChangeIdx === -1) firstChangeIdx = i;
+          lastChangeIdx = i;
         }
       });
 
-      // Add "00" start label if no transitions nearby
-      if (transitions.length === 0 || transitions[0] > 2) {
-        const startLabel = document.createElement('span');
-        startLabel.innerText = '00';
-        startLabel.style.position = 'absolute';
-        startLabel.style.left = '0';
-        rulerEl.appendChild(startLabel);
-      }
+      const addLabel = (text, pos, isRight = false, customShift = null) => {
+        const span = document.createElement('span');
+        span.innerText = text;
+        span.style.position = 'absolute';
+        span.style.color = 'var(--secondary-text-color)';
 
-      // Add "00" end label if no transitions nearby
-      if (transitions.length === 0 || transitions[transitions.length - 1] < 46) {
-        const endLabel = document.createElement('span');
-        endLabel.innerText = '00';
-        endLabel.style.position = 'absolute';
-        endLabel.style.right = '0';
-        rulerEl.appendChild(endLabel);
-      }
+        if (isRight) span.style.right = '0';
+        else {
+          span.style.left = `${pos}%`;
+          // Default center, or custom shift
+          if (customShift) span.style.transform = `translateX(${customShift})`;
+          else span.style.transform = 'translateX(-50%)';
+        }
 
+        const distToLast = Math.abs(pos - lastOccupiedPos);
+        const distToEdge = Math.min(pos, 100 - pos);
+
+        // COLLISION LOGIC 
+        // If distance is less than ~7% (approx 3 slots/1.5h), stagger.
+        // But if we used the "Spread" logic (2h), we want them on Level 0.
+        // We handle 2h logic before calling this function, so if we are here,
+        // we check collision.
+
+        // Note: if customShift is used, we likely want level 0
+        if (!customShift && pos !== 0 && pos !== 100 && (distToLast < 7 || distToEdge < 4)) {
+          currentLevel = (currentLevel === 0) ? 1 : 0;
+        } else {
+          currentLevel = 0;
+        }
+
+        span.style.top = currentLevel === 0 ? '0' : '14px';
+        rulerEl.appendChild(span);
+        lastOccupiedPos = pos;
+        return span;
+      };
+
+      // Draw blocks and change labels
       schedule.forEach((state, i) => {
-        // Timeline block
         const b = document.createElement('div');
-        b.className = 'block';
+        b.className = 'timeline-block';
         b.style.flex = '1';
         b.style.height = '100%';
-        b.style.background = state === 'off' ? '#ef5350' : '#66bb6a';
-        b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+        b.style.background = state === 'off' ? '#7f0000' : '#1b5e20';
+        b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.05)' : 'none';
         timelineEl.appendChild(b);
 
-        // Dynamic Ruler Labels at transitions
+        // Midnight Marker
+        const actualIdx = startOffsetIdx + i;
+        if (actualIdx > 0 && actualIdx % 48 === 0) {
+          const mLine = document.createElement('div');
+          mLine.className = 'midnight-marker';
+          mLine.style.position = 'absolute';
+          mLine.style.left = `${(i / totalSlots) * 100}%`;
+          mLine.style.top = '0';
+          mLine.style.bottom = '0';
+          mLine.style.width = '4px';
+          mLine.style.background = 'rgba(0,0,0,0.7)';
+          mLine.style.zIndex = '20';
+          mLine.style.boxShadow = '0 0 3px rgba(0,0,0,0.5)';
+          mLine.style.pointerEvents = 'none';
+          mLine.style.transform = 'translateX(-50%)';
+          timelineEl.appendChild(mLine);
+        }
+
+        // Add time label at change points
         if (i > 0 && schedule[i] !== schedule[i - 1]) {
-          const hh = Math.floor(i / 2).toString().padStart(2, '0');
-          const mm = i % 2 === 0 ? '00' : '30';
-          const label = document.createElement('span');
-          label.innerText = `${hh}:${mm}`;
-          label.style.position = 'absolute';
-          label.style.left = `${(i / 48) * 100}%`;
-          label.style.transform = 'translateX(-50%)';
-          rulerEl.appendChild(label);
+          const normalizedIdx = actualIdx % 48;
+          const h = Math.floor(normalizedIdx / 2);
+          const m = normalizedIdx % 2 === 0 ? '00' : '30';
+          const pos = (i / totalSlots) * 100;
+
+          // Check gap from last label index (in slots)
+          const slotsGap = i - lastLabelIndex;
+
+          let shiftCurrent = null;
+
+          // LOGIC:
+          // If gap is exactly 4 slots (2 hours): Spread them.
+          // Previous label moves Left (-75%), Current moves Right (-25%).
+          if (slotsGap === 4 && lastLabelElement) {
+            lastLabelElement.style.transform = 'translateX(-75%)'; // Move prev Left
+            lastLabelElement.style.top = '0'; // Ensure it's on top line
+            shiftCurrent = '-25%'; // Move current Right
+          }
+
+          const newLabel = addLabel(`${h.toString().padStart(2, '0')}:${m}`, pos, false, shiftCurrent);
+
+          // If we shifted current, ensure it is also on top line
+          if (shiftCurrent) {
+            newLabel.style.top = '0';
+            // Update lastOccupiedPos to avoid next label checking collision against "shifted" pos incorrectly?
+            // Actually collision check uses percentage.
+          }
+
+          lastLabelElement = newLabel;
+          lastLabelIndex = i;
         }
       });
-    }
 
-    // Stats
-    const hours = isToday ? (attrs.today_outage_hours || 0) : (attrs.tomorrow_outage_hours || 0);
-    const percentage = Math.round((hours / 24) * 100);
-    const thv = this.querySelector('#total-hours');
-    if (thv) thv.innerText = `${hours} год (${percentage}%)`;
+      // Start Label
+      const startIdx = startOffsetIdx;
+      const startH = Math.floor(startIdx / 2);
+      const startM = startIdx % 2 === 0 ? '00' : '30';
 
-    const ncl = this.querySelector('#next-change-label');
-    const ncv = this.querySelector('#next-change');
+      // Hide if first change is within 6 slots (3 hours)
+      if (firstChangeIdx === -1 || firstChangeIdx > 6) {
+        addLabel(`${startH.toString().padStart(2, '0')}:${startM}`, 0);
+      }
 
-    if (isToday) {
-      if (ncl) ncl.innerText = (attrs.now_status === 'off') ? 'Світло буде о:' : 'Світло вимкнуть о:';
+      // End Label
+      const endIdx = (startOffsetIdx + totalSlots) % 48;
+      const endH = Math.floor(endIdx / 2);
+      const endM = endIdx % 2 === 0 ? '00' : '30';
 
-      const curStatus = attrs.now_status;
-      const nextIso = curStatus === 'off' ? attrs.next_on_at : attrs.next_off_at;
+      // Hide if last change is within 6 slots (3 hours) of end
+      if (lastChangeIdx === -1 || (totalSlots - lastChangeIdx) > 6) {
+        addLabel(`${endH.toString().padStart(2, '0')}:${endM}`, 100, true);
+      }
 
-      let displayValue = '-:-';
-      if (nextIso) {
-        const nextDate = new Date(nextIso);
-        const todayDate = new Date();
+      // History
+      let historyList = isToday ? (attrs.history_today_48half || []) : (attrs.history_tomorrow_48half || []);
+      if (historyList.length === 48 && typeof historyList[0] === 'string') historyList = [historyList];
 
-        const isTomorrow = nextDate.getDate() !== todayDate.getDate() || nextDate.getMonth() !== todayDate.getMonth();
-
-        if (isTomorrow) {
-          if (hasTomorrow) {
-            // Format: 05.02 00:00
-            const d = nextDate.getDate().toString().padStart(2, '0');
-            const m = (nextDate.getMonth() + 1).toString().padStart(2, '0');
-            const hh = nextDate.getHours().toString().padStart(2, '0');
-            const mm = nextDate.getMinutes().toString().padStart(2, '0');
-            displayValue = `${d}.${m} ${hh}:${mm}`;
-          } else {
-            displayValue = '--:--';
-          }
+      if (historyTimelineEl) {
+        historyTimelineEl.innerHTML = '';
+        if (config.show_history && historyList.length > 0 && !isDynamic && isToday) {
+          historyTimelineEl.style.display = 'flex';
+          [...historyList].reverse().forEach((pastSchedule) => {
+            if (!Array.isArray(pastSchedule)) return;
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.height = '5px';
+            row.style.width = '100%';
+            row.style.marginTop = '2px';
+            row.style.borderRadius = '2px';
+            row.style.overflow = 'hidden';
+            row.style.opacity = '0.4';
+            pastSchedule.forEach((state, i) => {
+              const hb = document.createElement('div');
+              hb.style.flex = '1';
+              hb.style.height = '100%';
+              hb.style.background = state === 'off' ? '#7f0000' : '#1b5e20';
+              hb.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.05)' : 'none';
+              row.appendChild(hb);
+            });
+            historyTimelineEl.appendChild(row);
+          });
         } else {
-          const hh = nextDate.getHours().toString().padStart(2, '0');
-          const mm = nextDate.getMinutes().toString().padStart(2, '0');
-          displayValue = `${hh}:${mm}`;
+          historyTimelineEl.style.display = 'none';
         }
       }
-      if (ncv) ncv.innerText = displayValue;
-    } else {
-      if (ncl) ncl.innerText = 'Перша зміна:';
-      if (ncv && schedule.length === 48) {
-        const firstChangeIdx = schedule.findIndex(s => s !== schedule[0]);
-        if (firstChangeIdx === -1) ncv.innerText = "Без змін";
-        else ncv.innerText = `${Math.floor(firstChangeIdx / 2).toString().padStart(2, '0')}:${(firstChangeIdx % 2 === 0 ? "00" : "30")}`;
+    }
+
+    const offSlots = schedule.filter(s => s === 'off').length;
+    const hours = offSlots * 0.5;
+    const thv = this.querySelector('#total-hours');
+    if (thv) thv.innerText = `${hours} год (${Math.round((hours / 24) * 100)}%)`;
+
+    const totalLabel = this.querySelector('#total-label');
+    if (totalLabel) totalLabel.innerText = isDynamic ? "У найближчі 24г" : "Всього за добу";
+
+    const ncl = this.querySelector('#next-change-label'), ncv = this.querySelector('#next-change');
+
+    let currentState, targetState;
+    let searchStartIndex = 0;
+    let baseDate = new Date(kyivDate);
+
+    if (isDynamic) {
+      const diff = currentIdx - startOffsetIdx;
+      if (schedule[diff]) {
+        currentState = schedule[diff];
+        targetState = (currentState === 'off') ? 'on' : 'off';
+        searchStartIndex = diff + 1;
       }
+    } else if (isToday) {
+      if (schedule[currentIdx]) {
+        currentState = schedule[currentIdx];
+        targetState = (currentState === 'off') ? 'on' : 'off';
+        searchStartIndex = currentIdx + 1;
+      }
+    } else {
+      baseDate.setDate(baseDate.getDate() + 1);
+      currentState = schedule[0];
+      targetState = (currentState === 'off') ? 'on' : 'off';
+      searchStartIndex = 0;
+    }
+
+    if (ncl && currentState) ncl.innerText = (currentState === 'off') ? 'Світло буде о:' : 'Світло вимкнуть о:';
+
+    let foundIndex = -1;
+    if (currentState) {
+      for (let i = searchStartIndex; i < schedule.length; i++) {
+        if (schedule[i] === targetState) { foundIndex = i; break; }
+      }
+    }
+
+    let foundInTomorrowExtension = false;
+    let extTimeStr = "";
+
+    if (isToday && !isDynamic && foundIndex === -1 && hasTomorrow) {
+      const nextDayIndex = tomorrowSch.findIndex(s => s === targetState);
+      if (nextDayIndex !== -1) {
+        foundInTomorrowExtension = true;
+        const tD = new Date(kyivDate.getTime() + 86400000);
+        const dStr = tD.getDate().toString().padStart(2, '0');
+        const mStr = (tD.getMonth() + 1).toString().padStart(2, '0');
+        const yStr = tD.getFullYear();
+        const time = `${Math.floor(nextDayIndex / 2).toString().padStart(2, '0')}:${nextDayIndex % 2 === 0 ? "00" : "30"}`;
+        extTimeStr = `${time} ${dStr}.${mStr}.${yStr}`;
+      }
+    }
+
+    if (foundInTomorrowExtension) {
+      if (ncv) ncv.innerText = extTimeStr;
+    } else if (foundIndex !== -1) {
+      const absoluteIdx = startOffsetIdx + foundIndex;
+      const time = new Date(baseDate);
+      time.setHours(0, 0, 0, 0);
+      time.setMinutes(absoluteIdx * 30);
+
+      const dStr = time.getDate().toString().padStart(2, '0');
+      const mStr = (time.getMonth() + 1).toString().padStart(2, '0');
+      const yStr = time.getFullYear();
+      const tStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+
+      if (time.getDate() !== kyivDate.getDate()) {
+        if (ncv) ncv.innerText = `${tStr} ${dStr}.${mStr}.${yStr}`;
+      } else {
+        if (ncv) ncv.innerText = tStr;
+      }
+    } else {
+      if (ncv) ncv.innerText = '--:--';
     }
   }
 
@@ -529,7 +684,6 @@ class SvitloLiveCard extends HTMLElement {
 
 customElements.define('svitlo-live-card', SvitloLiveCard);
 
-// Register in custom cards list
 window.customCards = window.customCards || [];
 if (!window.customCards.some(c => c.type === "svitlo-live-card")) {
   window.customCards.push({ type: "svitlo-live-card", name: "Svitlo Live Card", preview: true, description: "Professional Svitlo.live dashboard" });

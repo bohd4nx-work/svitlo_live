@@ -43,6 +43,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # For legacy entries, we'll try to find it in the current catalog.
         self.is_new_api = False
         self.api_region_key = self.region
+        self._history_today: list[list[str]] = []
+        self._history_tomorrow: list[list[str]] = []
 
         scan_seconds = int(config.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL))
 
@@ -203,11 +205,28 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "source": DTEK_API_URL if self.is_new_api else OLD_API_URL,
             "next_on_at": next_on_at,
             "next_off_at": next_off_at,
-            "is_emergency": is_emergency,
             "today_outage_hours": today_outage_hours,
             "tomorrow_outage_hours": tomorrow_outage_hours,
             "longest_outage_hours": longest_outage,
+            "history_today_48half": self._history_today,
+            "history_tomorrow_48half": self._history_tomorrow,
         }
+
+        # Update "history" (store up to 3 previous versions)
+        if self.data:
+            old_today = self.data.get("today_48half", [])
+            if today_half and old_today and today_half != old_today:
+                if not self._history_today or old_today != self._history_today[0]:
+                    self._history_today.insert(0, old_today)
+                    self._history_today = self._history_today[:3]
+                data["history_today_48half"] = self._history_today
+            
+            old_tomorrow = self.data.get("tomorrow_48half", [])
+            if tomorrow_half and old_tomorrow and tomorrow_half != old_tomorrow:
+                if not self._history_tomorrow or old_tomorrow != self._history_tomorrow[0]:
+                    self._history_tomorrow.insert(0, old_tomorrow)
+                    self._history_tomorrow = self._history_tomorrow[:3]
+                data["history_tomorrow_48half"] = self._history_tomorrow
 
         if date_tomorrow and tomorrow_half:
             data["tomorrow_date"] = date_tomorrow

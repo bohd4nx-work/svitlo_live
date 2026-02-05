@@ -197,6 +197,8 @@ class SvitloCalendar(CoordinatorEntity, CalendarEntity):
             "today_outage_hours": data.get("today_outage_hours"),
             "tomorrow_outage_hours": data.get("tomorrow_outage_hours"),
             "longest_outage_hours": data.get("longest_outage_hours"),
+            "history_today_48half": data.get("history_today_48half", []),
+            "history_tomorrow_48half": data.get("history_tomorrow_48half", []),
             "updated": data.get("updated"),
         }
 
