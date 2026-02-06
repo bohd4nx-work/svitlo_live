@@ -58,6 +58,14 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-switch id="history-switch"></ha-switch>
           </ha-formfield>
 
+          <ha-formfield label="Показувати час ввімкнення/вимкнення" style="display: flex; align-items: center; margin-top: 8px;">
+            <ha-switch id="change-time-switch"></ha-switch>
+          </ha-formfield>
+
+          <ha-formfield label="Показувати тривалість відключення" style="display: flex; align-items: center; margin-top: 8px;">
+            <ha-switch id="duration-switch"></ha-switch>
+          </ha-formfield>
+
           <ha-formfield label="Показувати статистику" style="display: flex; align-items: center; margin-top: 8px;">
             <ha-switch id="stats-switch"></ha-switch>
           </ha-formfield>
@@ -172,6 +180,12 @@ class SvitloLiveCardEditor extends HTMLElement {
     const historySwitch = this.querySelector("#history-switch");
     if (historySwitch) historySwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_history', value: ev.target.checked } }));
 
+    const changeTimeSwitch = this.querySelector("#change-time-switch");
+    if (changeTimeSwitch) changeTimeSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_change_time', value: ev.target.checked } }));
+
+    const durationSwitch = this.querySelector("#duration-switch");
+    if (durationSwitch) durationSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_duration', value: ev.target.checked } }));
+
     const statsSwitch = this.querySelector("#stats-switch");
     const statTypeSelectors = this.querySelector("#stat-type-selectors");
     if (statsSwitch) {
@@ -211,6 +225,12 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const hs = this.querySelector("#history-switch");
     if (hs) hs.checked = this._config.show_history || false;
+
+    const cts = this.querySelector("#change-time-switch");
+    if (cts) cts.checked = this._config.show_change_time !== false; // default true
+
+    const durs = this.querySelector("#duration-switch");
+    if (durs) durs.checked = this._config.show_duration !== false; // default true
 
     const ss = this.querySelector("#stats-switch");
     const showStats = this._config.show_stats !== false;
@@ -487,9 +507,17 @@ class SvitloLiveCard extends HTMLElement {
 
         if (config.use_status_entity && customStatusEntity) {
           changeTime = new Date(customStatusEntity.last_changed);
-          historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${changeTime.getHours().toString().padStart(2, '0')}:${changeTime.getMinutes().toString().padStart(2, '0')}`;
+          if (config.show_change_time !== false) {
+            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${changeTime.getHours().toString().padStart(2, '0')}:${changeTime.getMinutes().toString().padStart(2, '0')}`;
+          } else {
+            historyLabelEl.innerText = '';
+          }
         } else if (schedState !== (isOffCurrent ? 'off' : 'on')) {
-          historyLabelEl.innerText = isOffCurrent ? `Відключено (за фактом)` : `Світло є (поза графіком)`;
+          if (config.show_change_time !== false) {
+            historyLabelEl.innerText = isOffCurrent ? `Відключено (за фактом)` : `Світло є (поза графіком)`;
+          } else {
+            historyLabelEl.innerText = '';
+          }
         } else {
           let chIdx = currentIdx;
           const targetState = isOffCurrent ? 'off' : 'on';
@@ -498,7 +526,11 @@ class SvitloLiveCard extends HTMLElement {
           const chM = chIdx % 2 === 0 ? 0 : 30;
           changeTime = new Date(kyivDate);
           changeTime.setHours(chH, chM, 0, 0);
-          historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${chH.toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
+          if (config.show_change_time !== false) {
+            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${chH.toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
+          } else {
+            historyLabelEl.innerText = '';
+          }
         }
 
         // Show power icon when power is off
@@ -507,7 +539,7 @@ class SvitloLiveCard extends HTMLElement {
         }
 
         // Duration timer
-        if (durationLabel && changeTime && isOffCurrent) {
+        if (durationLabel && changeTime && isOffCurrent && config.show_duration !== false) {
           durationLabel.style.display = 'block';
 
           const updateDuration = () => {
