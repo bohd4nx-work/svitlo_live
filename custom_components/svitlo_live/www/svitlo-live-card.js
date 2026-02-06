@@ -90,6 +90,10 @@ class SvitloLiveCardEditor extends HTMLElement {
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор оновлення графіку (необов'язково):</label>
           <div id="schedule-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Календар фактичних відключень (необов'язково):</label>
+          <div style="font-size: 11px; opacity: 0.6; margin: 2px 0 4px 0;">Якщо обрано — минулі слоти таймлайну показуватимуть фактичні відключення з календаря замість планових</div>
+          <div id="actual-calendar-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
         </div>
       `;
 
@@ -161,6 +165,20 @@ class SvitloLiveCardEditor extends HTMLElement {
       scheduleContainer.innerHTML = "";
       scheduleContainer.appendChild(selector);
       this._scheduleSelector = selector;
+    }
+
+    // Actual Calendar Picker
+    const actualCalendarContainer = this.querySelector("#actual-calendar-picker-container");
+    if (actualCalendarContainer) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['calendar'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'actual_outage_calendar_entity', value: ev.detail.value } });
+      });
+      actualCalendarContainer.innerHTML = "";
+      actualCalendarContainer.appendChild(selector);
+      this._actualCalendarSelector = selector;
     }
   }
 
@@ -249,6 +267,11 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._scheduleSelector.hass = this._hass;
       this._scheduleSelector.value = this._config.schedule_entity || '';
     }
+
+    if (this._actualCalendarSelector) {
+      this._actualCalendarSelector.hass = this._hass;
+      this._actualCalendarSelector.value = this._config.actual_outage_calendar_entity || '';
+    }
   }
 
   _valueChanged(ev) {
@@ -335,13 +358,13 @@ class SvitloLiveCard extends HTMLElement {
               <div id="left-stat" class="stat-item" style="
                   background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%); 
                   border: 1px solid rgba(127,127,127,0.12);
-                  padding: 6px 8px; 
+                  padding: 3px 6px; 
                   border-radius: 10px; 
                   display: flex; 
                   flex-direction: column; 
                   justify-content: center; 
                   align-items: center; 
-                  min-height: 48px; 
+                  min-height: 40px; 
                   text-align: center;
                   gap: 2px;
                   box-shadow: 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
@@ -353,13 +376,13 @@ class SvitloLiveCard extends HTMLElement {
               <div id="right-stat" class="stat-item" style="
                   background: linear-gradient(180deg, rgba(127,127,127,0.08) 0%, rgba(127,127,127,0.03) 100%); 
                   border: 1px solid rgba(127,127,127,0.12);
-                  padding: 6px 8px; 
+                  padding: 3px 6px; 
                   border-radius: 10px; 
                   display: flex; 
                   flex-direction: column; 
                   justify-content: center; 
                   align-items: center; 
-                  min-height: 48px; 
+                  min-height: 40px; 
                   text-align: center;
                   gap: 2px;
                   box-shadow: 0 2px 8px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.05);
@@ -413,7 +436,77 @@ class SvitloLiveCard extends HTMLElement {
       });
     }
 
+    this._hass = hass;
+    if (this.config && this.config.actual_outage_calendar_entity) {
+      this._fetchActualOutages(hass);
+    }
     this._renderWithCurrentDay(hass);
+  }
+
+  async _fetchActualOutages(hass) {
+    if (!this.config || !this.config.actual_outage_calendar_entity) return;
+
+    // Throttle: 30 seconds
+    const now = Date.now();
+    if (this._lastCalendarFetch && (now - this._lastCalendarFetch < 30000)) return;
+    this._lastCalendarFetch = now;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const end = new Date(today);
+    end.setHours(23, 59, 59, 999);
+
+    try {
+      // Use REST API: GET /api/calendars/{entity_id}?start=...&end=...
+      const entityId = this.config.actual_outage_calendar_entity;
+      const startISO = today.toISOString();
+      const endISO = end.toISOString();
+
+      const response = await hass.callApi(
+        'GET',
+        `calendars/${entityId}?start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`
+      );
+      this._actualOutages = Array.isArray(response) ? response : [];
+      this._renderWithCurrentDay(hass);
+    } catch (e) {
+      console.warn("SvitloLive: Error fetching calendar events", e);
+    }
+  }
+
+  _isSlotActuallyOff(absIdx) {
+    if (!this._actualOutages || this._actualOutages.length === 0) return null;
+
+    // Convert slot index to time range (local time - calendar events are in local time)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const slotStartH = Math.floor(absIdx / 2);
+    const slotStartM = (absIdx % 2) * 30;
+
+    const slotStart = new Date(today);
+    slotStart.setHours(slotStartH, slotStartM, 0, 0);
+    const slotEnd = new Date(today);
+    slotEnd.setHours(slotStartH, slotStartM + 30, 0, 0);
+
+    // Check if any calendar event overlaps this slot
+    for (const ev of this._actualOutages) {
+      const startStr = ev.start?.dateTime || ev.start?.date || ev.start;
+      const endStr = ev.end?.dateTime || ev.end?.date || ev.end;
+      if (!startStr || !endStr) continue;
+
+      const evStart = new Date(startStr);
+      const evEnd = new Date(endStr);
+
+      // Ignore events shorter than 30 minutes
+      const durationMs = evEnd - evStart;
+      if (durationMs < 30 * 60 * 1000) continue;
+
+      // Event overlaps slot if: evStart < slotEnd AND evEnd > slotStart
+      if (evStart < slotEnd && evEnd > slotStart) {
+        return true; // This slot has an actual outage
+      }
+    }
+    return false; // No actual outage in this slot
   }
 
   _renderWithCurrentDay(hass) {
@@ -461,7 +554,15 @@ class SvitloLiveCard extends HTMLElement {
     tabs.forEach(t => t.classList.toggle('active', t.dataset.day === this._selectedDay));
 
     const titleEl = this.querySelector('#title');
-    if (titleEl) titleEl.innerText = config.title || (attrs.friendly_name || "Svitlo.live").replace("Svitlo • ", "").replace(" Outages Schedule", "");
+    if (titleEl) {
+      if (config.title) {
+        titleEl.innerText = config.title;
+      } else if (attrs.region && attrs.queue) {
+        titleEl.innerText = `${attrs.region} / ${attrs.queue}`;
+      } else {
+        titleEl.innerText = (attrs.friendly_name || "Svitlo.live").replace("Svitlo • ", "").replace(" Outages Schedule", "");
+      }
+    }
 
     let schedule = [];
     let startOffsetIdx = 0;
@@ -557,8 +658,13 @@ class SvitloLiveCard extends HTMLElement {
           durationLabel.style.display = 'block';
 
           const updateDuration = () => {
-            const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
-            const diffMs = now - changeTime;
+            let diffMs;
+            if (config.use_status_entity && customStatusEntity) {
+              diffMs = new Date() - changeTime;
+            } else {
+              const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+              diffMs = now - changeTime;
+            }
             const diffMins = Math.floor(diffMs / 60000);
             const hours = Math.floor(diffMins / 60);
             const mins = diffMins % 60;
@@ -622,7 +728,7 @@ class SvitloLiveCard extends HTMLElement {
     const historyTimelineEl = this.querySelector('#history-timeline');
     const rulerEl = this.querySelector('#ruler');
 
-    const scheduleKey = `${isDynamic ? 'dyn' : this._selectedDay}_${JSON.stringify(schedule)}_${config.show_history}_${startOffsetIdx}`;
+    const scheduleKey = `${isDynamic ? 'dyn' : this._selectedDay}_${JSON.stringify(schedule)}_${config.show_history}_${startOffsetIdx}_${this._actualOutages?.length || 0}`;
 
     if (timelineEl && rulerEl && this._lastRenderedKey !== scheduleKey) {
       this._lastRenderedKey = scheduleKey;
@@ -692,13 +798,17 @@ class SvitloLiveCard extends HTMLElement {
 
       // 2. ADD START LABEL (Conditionally)
       const startIdx = startOffsetIdx;
-      const startH = Math.floor(startIdx / 2);
-      const startM = startIdx % 2 === 0 ? '00' : '30';
+
+      // Convert start time from Kyiv to local
+      const startKyivTime = new Date(kyivDate);
+      startKyivTime.setHours(0, 0, 0, 0);
+      startKyivTime.setMinutes(startIdx * 30);
+      const startLocal = toLocalDisplay(startKyivTime);
 
       let startLabelVisible = false;
       // HIDE if first change is <= 6 slots (3 hours) from start
       if (firstChangeIdx === -1 || firstChangeIdx > 6) {
-        lastLabelElement = addLabel(`${startH.toString().padStart(2, '0')}:${startM}`, 0, 'start');
+        lastLabelElement = addLabel(startLocal.time, 0, 'start');
         isPrevStart = true;
         startLabelVisible = true;
         lastLabelIndex = -1; // logical start index
@@ -709,12 +819,25 @@ class SvitloLiveCard extends HTMLElement {
       }
 
       // 3. DRAW BLOCKS & CHANGE LABELS
+      let prevDisplayState = null;
       schedule.forEach((state, i) => {
+        const absoluteIdx = startOffsetIdx + i;
+        const isPastSlot = absoluteIdx < currentIdx;
+
+        // For past slots with calendar data, use actual outage status
+        let displayState = state;
+        if (isPastSlot && config.actual_outage_calendar_entity && isToday) {
+          const actualOff = this._isSlotActuallyOff(absoluteIdx);
+          if (actualOff !== null) {
+            displayState = actualOff ? 'off' : 'on';
+          }
+        }
+
         const b = document.createElement('div');
         b.className = 'timeline-block';
         b.style.flex = '1';
         b.style.height = '100%';
-        b.style.background = state === 'off' ? '#7f0000' : '#1b5e20';
+        b.style.background = displayState === 'off' ? '#7f0000' : '#1b5e20';
         b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.05)' : 'none';
         timelineEl.appendChild(b);
 
@@ -737,11 +860,22 @@ class SvitloLiveCard extends HTMLElement {
         }
 
         // Add time label at change points
-        if (i > 0 && schedule[i] !== schedule[i - 1]) {
+        // For past slots with calendar data: use displayState changes only (fact)
+        // For future slots or no calendar: use schedule changes (plan)
+        const hasDisplayStateChange = i > 0 && prevDisplayState !== null && displayState !== prevDisplayState;
+        const hasScheduleChange = i > 0 && schedule[i] !== schedule[i - 1];
+        const useFactLabels = isPastSlot && config.actual_outage_calendar_entity && isToday && this._actualOutages?.length;
+        const shouldAddLabel = useFactLabels ? hasDisplayStateChange : hasScheduleChange;
+
+        if (shouldAddLabel) {
           const normalizedIdx = actualIdx % 48;
-          const h = Math.floor(normalizedIdx / 2);
-          const m = normalizedIdx % 2 === 0 ? '00' : '30';
           const pos = (i / totalSlots) * 100;
+
+          // Convert Kyiv time to local time
+          const kyivTime = new Date(kyivDate);
+          kyivTime.setHours(0, 0, 0, 0);
+          kyivTime.setMinutes(normalizedIdx * 30);
+          const local = toLocalDisplay(kyivTime);
 
           let shiftCurrent = null;
 
@@ -752,21 +886,21 @@ class SvitloLiveCard extends HTMLElement {
             else slotsGap = i - lastLabelIndex;
 
             // SPREAD LOGIC: spread labels when they are close
-            // <= 3 slots (1.5 hours): aggressive spread
-            // 4-6 slots (2-3 hours): moderate spread
+            // 2-3 slots (1-1.5 hours): moderate spread
+            // 4-5 slots (2-2.5 hours): light spread
             if (slotsGap >= 2 && slotsGap <= 3) {
-              // 1-1.5 hour gap - spread aggressively
+              // 1-1.5 hour gap - moderate spread
               if (isPrevStart) {
-                shiftCurrent = '-15%';
+                shiftCurrent = '-30%';
               } else {
                 if (lastLabelElement) {
-                  lastLabelElement.style.transform = 'translateX(-85%)';
+                  lastLabelElement.style.transform = 'translateX(-70%)';
                   lastLabelElement.style.top = '0';
                 }
-                shiftCurrent = '-15%';
+                shiftCurrent = '-30%';
               }
-            } else if (slotsGap >= 4 && slotsGap <= 6) {
-              // 2-3 hour gap - spread moderately
+            } else if (slotsGap >= 4 && slotsGap <= 5) {
+              // 2-2.5 hour gap - spread moderately
               if (isPrevStart) {
                 shiftCurrent = '-30%';
               } else {
@@ -779,19 +913,25 @@ class SvitloLiveCard extends HTMLElement {
             }
           }
 
-          const newLabel = addLabel(`${h.toString().padStart(2, '0')}:${m}`, pos, 'normal', shiftCurrent);
+          const newLabel = addLabel(local.time, pos, 'normal', shiftCurrent);
           if (shiftCurrent) newLabel.style.top = '0';
 
           lastLabelElement = newLabel;
           lastLabelIndex = i;
           isPrevStart = false;
         }
+
+        prevDisplayState = displayState;
       });
 
       // 4. ADD END LABEL (Conditionally)
       const endIdx = (startOffsetIdx + totalSlots) % 48;
-      const endH = Math.floor(endIdx / 2);
-      const endM = endIdx % 2 === 0 ? '00' : '30';
+
+      // Convert end time from Kyiv to local
+      const endKyivTime = new Date(kyivDate);
+      endKyivTime.setHours(0, 0, 0, 0);
+      endKyivTime.setMinutes(endIdx * 30);
+      const endLocal = toLocalDisplay(endKyivTime);
 
       // Check distance from last change to end
       const distToEnd = totalSlots - lastLabelIndex;
@@ -803,15 +943,15 @@ class SvitloLiveCard extends HTMLElement {
         // Apply spread logic for close labels
         if (distToEnd >= 2 && distToEnd <= 3 && lastLabelElement) {
           // 1-1.5 hour gap
-          lastLabelElement.style.transform = 'translateX(-85%)';
+          lastLabelElement.style.transform = 'translateX(-70%)';
           lastLabelElement.style.top = '0';
-        } else if (distToEnd >= 4 && distToEnd <= 6 && lastLabelElement) {
-          // 2-3 hour gap
+        } else if (distToEnd >= 4 && distToEnd <= 5 && lastLabelElement) {
+          // 2-2.5 hour gap
           lastLabelElement.style.transform = 'translateX(-70%)';
           lastLabelElement.style.top = '0';
         }
 
-        addLabel(`${endH.toString().padStart(2, '0')}:${endM}`, 100, 'end');
+        addLabel(endLocal.time, 100, 'end');
       }
 
       // History
@@ -847,6 +987,67 @@ class SvitloLiveCard extends HTMLElement {
         }
       }
     }
+
+
+    // Actual Timeline Rendering
+    const actualTimelineEl = this.querySelector('#actual-timeline');
+    if (actualTimelineEl) {
+      actualTimelineEl.innerHTML = '';
+      if (config.actual_outage_calendar_entity && this._actualOutages && this._actualOutages.length > 0 && !isDynamic && isToday) {
+        actualTimelineEl.style.display = 'block';
+        this._actualOutages.forEach(ev => {
+          const startStr = ev.start.dateTime || ev.start.date;
+          const endStr = ev.end.dateTime || ev.end.date;
+          if (!startStr || !endStr) return;
+
+          // Normalize ISO/Date to Kyiv Time components for the timeline
+          const dStart = new Date(startStr);
+          const dEnd = new Date(endStr);
+
+          const startKyiv = new Date(dStart.toLocaleString("en-US", {
+            timeZone: "Europe/Kyiv"
+          }));
+          const endKyiv = new Date(dEnd.toLocaleString("en-US", {
+            timeZone: "Europe/Kyiv"
+          }));
+
+          // Clip to Today 00:00 - 24:00 (Kyiv)
+          const todayStart = new Date(kyivDate);
+          todayStart.setHours(0, 0, 0, 0);
+          const todayEnd = new Date(todayStart);
+          todayEnd.setHours(24, 0, 0, 0);
+
+          if (endKyiv <= todayStart || startKyiv >= todayEnd) return;
+
+          const effStart = startKyiv < todayStart ? todayStart : startKyiv;
+          const effEnd = endKyiv > todayEnd ? todayEnd : endKyiv;
+
+          const startMins = effStart.getHours() * 60 + effStart.getMinutes();
+          const endMins = effEnd.getHours() * 60 + effEnd.getMinutes();
+          const duration = endMins - startMins;
+
+          if (duration <= 0) return;
+
+          const left = (startMins / 1440) * 100;
+          const width = (duration / 1440) * 100;
+
+          const b = document.createElement('div');
+          b.style.position = 'absolute';
+          b.style.left = `${left}%`;
+          b.style.width = `${width}%`;
+          b.style.top = '0';
+          b.style.bottom = '0';
+          b.style.background = '#e53935';
+          b.style.opacity = '0.9';
+          b.style.boxShadow = '0 0 2px rgba(0,0,0,0.5)';
+          b.title = `${effStart.toLocaleTimeString()} - ${effEnd.toLocaleTimeString()}`;
+          actualTimelineEl.appendChild(b);
+        });
+      } else {
+        actualTimelineEl.style.display = 'none';
+      }
+    }
+
 
     // Stats visibility
     const statsEl = this.querySelector('#stats');
@@ -956,10 +1157,34 @@ class SvitloLiveCard extends HTMLElement {
 
         switch (type) {
           case 'hours_without_light': {
-            const offSlots = schedule.filter(s => s === 'off').length;
-            const hours = offSlots * 0.5;
-            labelEl.innerText = isDynamic ? "У найближчі 24г без світла" : "Всього за добу без світла";
-            valueEl.innerText = `${hours} год (${Math.round((hours / 24) * 100)}%)`;
+            try {
+              let offSlots = 0;
+              const hasActualData = isToday && config.actual_outage_calendar_entity && this._actualOutages?.length;
+
+              if (schedule && Array.isArray(schedule)) {
+                schedule.forEach((s, i) => {
+                  const absoluteIdx = startOffsetIdx + i;
+                  const isPastSlot = absoluteIdx < currentIdx;
+
+                  if (hasActualData && isPastSlot) {
+                    // For past slots with calendar, use actual data
+                    const actualOff = this._isSlotActuallyOff(absoluteIdx);
+                    if (actualOff === true) offSlots++;
+                  } else {
+                    // For future slots or no calendar, use scheduled
+                    if (s === 'off') offSlots++;
+                  }
+                });
+              }
+
+              const hours = offSlots * 0.5;
+              const labelText = isDynamic ? "У найближчі 24г без світла" : "Всього за добу без світла";
+              labelEl.innerText = labelText;
+              valueEl.innerText = `${hours} год (${Math.round((hours / 24) * 100)}%)`;
+            } catch (e) {
+              console.error("SvitloLive: Error calc hours_without_light", e);
+              valueEl.innerText = "Error";
+            }
             break;
           }
           case 'next_change': {
@@ -979,13 +1204,15 @@ class SvitloLiveCard extends HTMLElement {
             if (config.schedule_entity && hass.states[config.schedule_entity]) {
               const scheduleState = hass.states[config.schedule_entity];
               const lastChanged = new Date(scheduleState.last_changed);
-              const local = toLocalDisplay(lastChanged); // Use toLocalDisplay for consistency
+              // lastChanged is already in UTC, browser converts to local automatically
+              const h = lastChanged.getHours().toString().padStart(2, '0');
+              const m = lastChanged.getMinutes().toString().padStart(2, '0');
 
               const now = new Date();
-              if (local.date.getDate() === now.getDate() && local.date.getMonth() === now.getMonth()) {
-                valueEl.innerText = local.time;
+              if (lastChanged.getDate() === now.getDate() && lastChanged.getMonth() === now.getMonth()) {
+                valueEl.innerText = `${h}:${m}`;
               } else {
-                valueEl.innerText = `${local.time} ${local.date.getDate().toString().padStart(2, '0')}.${(local.date.getMonth() + 1).toString().padStart(2, '0')}`;
+                valueEl.innerText = `${h}:${m} ${lastChanged.getDate().toString().padStart(2, '0')}.${(lastChanged.getMonth() + 1).toString().padStart(2, '0')}`;
               }
             } else {
               valueEl.innerText = '--:--';
@@ -995,84 +1222,7 @@ class SvitloLiveCard extends HTMLElement {
         }
       };
 
-      // Update Header Label with Local Time
-      if (historyLabelEl && schedule.length >= 1) {
-        const fullToday = attrs.today_48half || [];
-        let changeTime = null;
 
-        if (config.use_status_entity && customStatusEntity) {
-          // customStatusEntity.last_changed is a standard Date (local/UTC)
-          changeTime = new Date(customStatusEntity.last_changed);
-          if (config.show_change_time !== false) {
-            const local = toLocalDisplay(changeTime);
-            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${local.time}`;
-          } else {
-            historyLabelEl.innerText = '';
-          }
-        } else if (schedState !== (isOffCurrent ? 'off' : 'on')) {
-          // ... (no changes needed for "ФАКТ")
-          if (config.show_change_time !== false) {
-            historyLabelEl.innerText = isOffCurrent ? `Відключено (за фактом)` : `Світло є (поза графіком)`;
-          } else {
-            historyLabelEl.innerText = '';
-          }
-        } else {
-          // Calculated from Schedule (Kyiv Time) -> Needs conversion!
-          let chIdx = currentIdx;
-          const targetState = isOffCurrent ? 'off' : 'on';
-          while (chIdx > 0 && fullToday[chIdx - 1] === targetState) chIdx--;
-          const chH = Math.floor(chIdx / 2);
-          const chM = chIdx % 2 === 0 ? 0 : 30;
-          changeTime = new Date(kyivDate);
-          changeTime.setHours(chH, chM, 0, 0);
-
-          if (config.show_change_time !== false) {
-            const local = toLocalDisplay(changeTime);
-            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${local.time}`;
-          } else {
-            historyLabelEl.innerText = '';
-          }
-        }
-
-        // ... (icon logic unchanged) ...
-
-        // Duration (calculation relies on diff, so it works regardless of display time)
-        if (durationLabel && changeTime && isOffCurrent && config.show_duration !== false) {
-          // ... existing duration logic works because it compares `now - changeTime`
-          // But wait, if changeTime is "Fake Kyiv" and `now` is "Fake Kyiv" (in updateDuration), diff is correct.
-          // If changeTime is "Real Local" (from status entity), we need "Real Local Now".
-
-          // We have mixed types of `changeTime` here!
-          // Case 1: Custom Entity -> Real Date
-          // Case 2: Schedule -> Fake Kyiv Date
-
-          const isCustom = config.use_status_entity && customStatusEntity;
-
-          durationLabel.style.display = 'block';
-
-          const updateDuration = () => {
-            let diffMs;
-            if (isCustom) {
-              // Real Date vs Real Date
-              diffMs = new Date() - changeTime;
-            } else {
-              // Fake Kyiv vs Fake Kyiv
-              const nowK = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
-              diffMs = nowK - changeTime;
-            }
-
-            const diffMins = Math.floor(diffMs / 60000);
-            const hours = Math.floor(diffMins / 60);
-            const mins = diffMins % 60;
-            durationLabel.innerText = `Тривалість: ${hours.toString().padStart(2, '0')} год ${mins.toString().padStart(2, '0')} хв`;
-          };
-
-          updateDuration();
-          if (this._durationInterval) clearInterval(this._durationInterval);
-          this._durationInterval = setInterval(updateDuration, 60000);
-        }
-        // ...
-      }
 
       renderStat(leftType, this.querySelector('#left-stat-label'), this.querySelector('#left-stat-value'));
       renderStat(rightType, this.querySelector('#right-stat-label'), this.querySelector('#right-stat-value'));

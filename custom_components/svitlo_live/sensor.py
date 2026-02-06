@@ -338,7 +338,7 @@ class SvitloOutageHoursToday(SvitloBaseEntity):
 
 class SvitloOutageHoursTomorrow(SvitloBaseEntity):
     _attr_translation_key = "svitlo_outage_tomorrow"
-    _attr_icon = "mdi:clock-arrow-right"
+    _attr_icon = "mdi:calendar-clock"
     _attr_native_unit_of_measurement = UnitOfTime.HOURS
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 1
