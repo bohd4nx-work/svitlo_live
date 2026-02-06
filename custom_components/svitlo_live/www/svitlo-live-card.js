@@ -489,6 +489,8 @@ class SvitloLiveCard extends HTMLElement {
     slotEnd.setHours(slotStartH, slotStartM + 30, 0, 0);
 
     // Check if any calendar event overlaps this slot
+    let totalOverlapMs = 0;
+
     for (const ev of this._actualOutages) {
       const startStr = ev.start?.dateTime || ev.start?.date || ev.start;
       const endStr = ev.end?.dateTime || ev.end?.date || ev.end;
@@ -497,16 +499,22 @@ class SvitloLiveCard extends HTMLElement {
       const evStart = new Date(startStr);
       const evEnd = new Date(endStr);
 
-      // Ignore events shorter than 30 minutes
+      // Ignore events shorter than 5 minutes (noise)
       const durationMs = evEnd - evStart;
-      if (durationMs < 30 * 60 * 1000) continue;
+      if (durationMs < 5 * 60 * 1000) continue;
 
-      // Event overlaps slot if: evStart < slotEnd AND evEnd > slotStart
-      if (evStart < slotEnd && evEnd > slotStart) {
-        return true; // This slot has an actual outage
+      // Calculate intersection
+      const startOverlap = evStart < slotStart ? slotStart : evStart;
+      const endOverlap = evEnd > slotEnd ? slotEnd : evEnd;
+
+      if (startOverlap < endOverlap) {
+        totalOverlapMs += (endOverlap - startOverlap);
       }
     }
-    return false; // No actual outage in this slot
+
+    // Mark as OFF if outage covers more than 15 minutes (50%) of the slot
+    // This ensures majority rule: if >50% is off, show off. Else show on.
+    return totalOverlapMs > 15 * 60 * 1000;
   }
 
   _renderWithCurrentDay(hass) {
@@ -871,11 +879,49 @@ class SvitloLiveCard extends HTMLElement {
           const normalizedIdx = actualIdx % 48;
           const pos = (i / totalSlots) * 100;
 
-          // Convert Kyiv time to local time
-          const kyivTime = new Date(kyivDate);
-          kyivTime.setHours(0, 0, 0, 0);
-          kyivTime.setMinutes(normalizedIdx * 30);
-          const local = toLocalDisplay(kyivTime);
+          let displayTime = new Date(kyivDate);
+          displayTime.setHours(0, 0, 0, 0);
+          displayTime.setMinutes(normalizedIdx * 30);
+
+          // If showing FACT labels, try to find the EXACT time from calendar events
+          if (useFactLabels) {
+            // Determine if this is start (ON->OFF) or end (OFF->ON) of an outage visual block
+            // Note: displayState is current slot state. prevDisplayState is previous.
+            // If current is OFF, prev was ON => Outage Start. 
+            // If current is ON, prev was OFF => Outage End.
+            const isOutageStart = displayState === 'off';
+
+            let bestTime = null;
+            let minDiff = Infinity;
+            const slotTimeMs = displayTime.getTime();
+
+            // Search for closest event boundary
+            if (this._actualOutages) {
+              for (const ev of this._actualOutages) {
+                const tStr = isOutageStart
+                  ? (ev.start?.dateTime || ev.start?.date || ev.start)
+                  : (ev.end?.dateTime || ev.end?.date || ev.end);
+
+                if (!tStr) continue;
+                // These calendar events are usually in local time already or ISO
+                const tDate = new Date(tStr);
+                const diff = Math.abs(tDate.getTime() - slotTimeMs);
+
+                // Look for event close to this slot boundary (within 45 mins)
+                if (diff < 45 * 60 * 1000 && diff < minDiff) {
+                  minDiff = diff;
+                  bestTime = tDate;
+                }
+              }
+            }
+
+            if (bestTime) {
+              displayTime = bestTime;
+            }
+          }
+
+          // Convert to local time for display
+          const local = toLocalDisplay(displayTime);
 
           let shiftCurrent = null;
 
