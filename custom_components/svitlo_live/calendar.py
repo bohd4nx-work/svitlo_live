@@ -32,7 +32,7 @@ class SvitloCalendar(CoordinatorEntity, CalendarEntity):
     
     # Використовуємо нову логіку імен (як в сенсорах)
     _attr_has_entity_name = True
-    _attr_name = "Outages Schedule"
+    _attr_translation_key = "svitlo_calendar"
     _attr_icon = "mdi:calendar-clock"
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:

@@ -81,6 +81,11 @@
       "svitlo_emergency": {
         "name": "Аварійні відключення"
       }
+    },
+    "calendar": {
+      "svitlo_calendar": {
+        "name": "Графік відключень"
+      }
     }
   }
 }

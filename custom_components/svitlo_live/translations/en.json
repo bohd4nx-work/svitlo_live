@@ -81,6 +81,11 @@
       "svitlo_emergency": {
         "name": "Emergency outages"
       }
+    },
+    "calendar": {
+      "svitlo_calendar": {
+        "name": "Outages Schedule"
+      }
     }
   }
 }
