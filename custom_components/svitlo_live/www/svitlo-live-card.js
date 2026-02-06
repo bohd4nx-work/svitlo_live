@@ -439,6 +439,17 @@ class SvitloLiveCard extends HTMLElement {
     const eb = this.querySelector('#emergency-banner');
     const nowMarker = this.querySelector('#now-marker');
 
+    // Helper: Convert Kyiv Date (fake Date object) to Local Display String
+    const toLocalDisplay = (kyivDateObj) => {
+      const nowKyiv = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+      const diff = kyivDateObj - nowKyiv;
+      const localEventTime = new Date(Date.now() + diff);
+
+      const lh = localEventTime.getHours().toString().padStart(2, '0');
+      const lm = localEventTime.getMinutes().toString().padStart(2, '0');
+      return { time: `${lh}:${lm}`, date: localEventTime };
+    };
+
     if (daySwitcher) {
       if (isDynamic) {
         daySwitcher.style.display = 'none';
@@ -508,7 +519,9 @@ class SvitloLiveCard extends HTMLElement {
         if (config.use_status_entity && customStatusEntity) {
           changeTime = new Date(customStatusEntity.last_changed);
           if (config.show_change_time !== false) {
-            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${changeTime.getHours().toString().padStart(2, '0')}:${changeTime.getMinutes().toString().padStart(2, '0')}`;
+            const h = changeTime.getHours().toString().padStart(2, '0');
+            const m = changeTime.getMinutes().toString().padStart(2, '0');
+            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${h}:${m}`;
           } else {
             historyLabelEl.innerText = '';
           }
@@ -527,7 +540,8 @@ class SvitloLiveCard extends HTMLElement {
           changeTime = new Date(kyivDate);
           changeTime.setHours(chH, chM, 0, 0);
           if (config.show_change_time !== false) {
-            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${chH.toString().padStart(2, '0')}:${(chIdx % 2 === 0 ? "00" : "30")}`;
+            const local = toLocalDisplay(changeTime);
+            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${local.time}`;
           } else {
             historyLabelEl.innerText = '';
           }
@@ -883,8 +897,16 @@ class SvitloLiveCard extends HTMLElement {
           const nextDayIndex = tomorrowSch.findIndex(s => s === targetState);
           if (nextDayIndex !== -1) {
             const tD = new Date(kyivDate.getTime() + 86400000);
-            const time = `${Math.floor(nextDayIndex / 2).toString().padStart(2, '0')}:${nextDayIndex % 2 === 0 ? "00" : "30"}`;
-            return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: `${time} ${tD.getDate().toString().padStart(2, '0')}.${(tD.getMonth() + 1).toString().padStart(2, '0')}` };
+            tD.setHours(Math.floor(nextDayIndex / 2), (nextDayIndex % 2) * 30, 0, 0);
+
+            const local = toLocalDisplay(tD);
+            const dStr = `${local.date.getDate().toString().padStart(2, '0')}.${(local.date.getMonth() + 1).toString().padStart(2, '0')}`;
+
+            return {
+              label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:',
+              value: `${local.time} ${dStr}`,
+              rawDate: tD
+            };
           }
         }
 
@@ -893,33 +915,32 @@ class SvitloLiveCard extends HTMLElement {
           const time = new Date(kyivDate);
           time.setHours(0, 0, 0, 0);
           time.setMinutes(absoluteIdx * 30);
-          const tStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
-          if (time.getDate() !== kyivDate.getDate()) {
-            return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: `${tStr} ${time.getDate().toString().padStart(2, '0')}.${(time.getMonth() + 1).toString().padStart(2, '0')}` };
+
+          const local = toLocalDisplay(time);
+
+          if (local.date.getDate() !== new Date().getDate()) {
+            const dStr = `${local.date.getDate().toString().padStart(2, '0')}.${(local.date.getMonth() + 1).toString().padStart(2, '0')}`;
+            return {
+              label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:',
+              value: `${local.time} ${dStr}`,
+              rawDate: time
+            };
           }
-          return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: tStr };
+          return {
+            label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:',
+            value: local.time,
+            rawDate: time
+          };
         }
-        return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: '--:--' };
+        return { label: currentState === 'off' ? 'Світло буде о:' : 'Вимкнуть о:', value: '--:--', rawDate: null };
       };
 
       // Helper function to calculate countdown
       const getCountdownInfo = () => {
         const nextInfo = getNextChangeInfo();
-        if (nextInfo.value === '--:--') return { label: 'До зміни:', value: '--:--' };
+        if (nextInfo.value === '--:--' || !nextInfo.rawDate) return { label: 'До зміни:', value: '--:--' };
 
-        // Parse time from nextInfo.value
-        const timeParts = nextInfo.value.split(' ')[0].split(':');
-        const nextTime = new Date(kyivDate);
-        nextTime.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
-
-        // If date is in value (e.g. "08:00 07.02"), adjust date
-        if (nextInfo.value.includes(' ') && nextInfo.value.split(' ').length > 1) {
-          const dateParts = nextInfo.value.split(' ')[1].split('.');
-          nextTime.setDate(parseInt(dateParts[0]));
-          nextTime.setMonth(parseInt(dateParts[1]) - 1);
-        }
-
-        const diffMs = nextTime - kyivDate;
+        const diffMs = nextInfo.rawDate - kyivDate;
         if (diffMs < 0) return { label: nextInfo.label.replace(' о:', ''), value: '--:--' };
 
         const diffMins = Math.floor(diffMs / 60000);
@@ -958,13 +979,13 @@ class SvitloLiveCard extends HTMLElement {
             if (config.schedule_entity && hass.states[config.schedule_entity]) {
               const scheduleState = hass.states[config.schedule_entity];
               const lastChanged = new Date(scheduleState.last_changed);
-              const kyivTime = new Date(lastChanged.toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
-              const h = kyivTime.getHours().toString().padStart(2, '0');
-              const m = kyivTime.getMinutes().toString().padStart(2, '0');
-              if (kyivTime.getDate() === kyivDate.getDate() && kyivTime.getMonth() === kyivDate.getMonth()) {
-                valueEl.innerText = `${h}:${m}`;
+              const local = toLocalDisplay(lastChanged); // Use toLocalDisplay for consistency
+
+              const now = new Date();
+              if (local.date.getDate() === now.getDate() && local.date.getMonth() === now.getMonth()) {
+                valueEl.innerText = local.time;
               } else {
-                valueEl.innerText = `${h}:${m} ${kyivTime.getDate().toString().padStart(2, '0')}.${(kyivTime.getMonth() + 1).toString().padStart(2, '0')}`;
+                valueEl.innerText = `${local.time} ${local.date.getDate().toString().padStart(2, '0')}.${(local.date.getMonth() + 1).toString().padStart(2, '0')}`;
               }
             } else {
               valueEl.innerText = '--:--';
@@ -973,6 +994,85 @@ class SvitloLiveCard extends HTMLElement {
           }
         }
       };
+
+      // Update Header Label with Local Time
+      if (historyLabelEl && schedule.length >= 1) {
+        const fullToday = attrs.today_48half || [];
+        let changeTime = null;
+
+        if (config.use_status_entity && customStatusEntity) {
+          // customStatusEntity.last_changed is a standard Date (local/UTC)
+          changeTime = new Date(customStatusEntity.last_changed);
+          if (config.show_change_time !== false) {
+            const local = toLocalDisplay(changeTime);
+            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${local.time}`;
+          } else {
+            historyLabelEl.innerText = '';
+          }
+        } else if (schedState !== (isOffCurrent ? 'off' : 'on')) {
+          // ... (no changes needed for "ФАКТ")
+          if (config.show_change_time !== false) {
+            historyLabelEl.innerText = isOffCurrent ? `Відключено (за фактом)` : `Світло є (поза графіком)`;
+          } else {
+            historyLabelEl.innerText = '';
+          }
+        } else {
+          // Calculated from Schedule (Kyiv Time) -> Needs conversion!
+          let chIdx = currentIdx;
+          const targetState = isOffCurrent ? 'off' : 'on';
+          while (chIdx > 0 && fullToday[chIdx - 1] === targetState) chIdx--;
+          const chH = Math.floor(chIdx / 2);
+          const chM = chIdx % 2 === 0 ? 0 : 30;
+          changeTime = new Date(kyivDate);
+          changeTime.setHours(chH, chM, 0, 0);
+
+          if (config.show_change_time !== false) {
+            const local = toLocalDisplay(changeTime);
+            historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${local.time}`;
+          } else {
+            historyLabelEl.innerText = '';
+          }
+        }
+
+        // ... (icon logic unchanged) ...
+
+        // Duration (calculation relies on diff, so it works regardless of display time)
+        if (durationLabel && changeTime && isOffCurrent && config.show_duration !== false) {
+          // ... existing duration logic works because it compares `now - changeTime`
+          // But wait, if changeTime is "Fake Kyiv" and `now` is "Fake Kyiv" (in updateDuration), diff is correct.
+          // If changeTime is "Real Local" (from status entity), we need "Real Local Now".
+
+          // We have mixed types of `changeTime` here!
+          // Case 1: Custom Entity -> Real Date
+          // Case 2: Schedule -> Fake Kyiv Date
+
+          const isCustom = config.use_status_entity && customStatusEntity;
+
+          durationLabel.style.display = 'block';
+
+          const updateDuration = () => {
+            let diffMs;
+            if (isCustom) {
+              // Real Date vs Real Date
+              diffMs = new Date() - changeTime;
+            } else {
+              // Fake Kyiv vs Fake Kyiv
+              const nowK = new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" }));
+              diffMs = nowK - changeTime;
+            }
+
+            const diffMins = Math.floor(diffMs / 60000);
+            const hours = Math.floor(diffMins / 60);
+            const mins = diffMins % 60;
+            durationLabel.innerText = `Тривалість: ${hours.toString().padStart(2, '0')} год ${mins.toString().padStart(2, '0')} хв`;
+          };
+
+          updateDuration();
+          if (this._durationInterval) clearInterval(this._durationInterval);
+          this._durationInterval = setInterval(updateDuration, 60000);
+        }
+        // ...
+      }
 
       renderStat(leftType, this.querySelector('#left-stat-label'), this.querySelector('#left-stat-value'));
       renderStat(rightType, this.querySelector('#right-stat-label'), this.querySelector('#right-stat-value'));

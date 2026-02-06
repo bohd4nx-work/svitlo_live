@@ -182,7 +182,16 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         next_off_at = self._find_next_at(["off"], base_day, today_half, idx, date_tomorrow, tomorrow_half)
 
         # Determine next change time based on current status and calculated timestamps
-        next_change_iso = next_on_at if cur == "off" else next_off_at
+        if cur == "off":
+            next_change_iso = next_on_at
+        elif cur == "on":
+            next_change_iso = next_off_at
+        else:
+            # For "unknown" status, pick the earliest transition (either on or off)
+            if next_on_at and next_off_at:
+                next_change_iso = min(next_on_at, next_off_at)
+            else:
+                next_change_iso = next_on_at or next_off_at
         next_change_hhmm = None
         if next_change_iso:
             try:

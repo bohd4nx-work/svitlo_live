@@ -60,7 +60,7 @@ class SvitloBaseEntity(CoordinatorEntity, SensorEntity):
 
 class SvitloStatusSensor(SvitloBaseEntity):
     """Головний сенсор статусу."""
-    _attr_name = "Electricity" 
+    _attr_translation_key = "svitlo_status"
     _attr_icon = "mdi:transmission-tower"
 
     def __init__(self, coordinator) -> None:
@@ -106,7 +106,7 @@ class SvitloStatusSensor(SvitloBaseEntity):
 # ---------- TIMESTAMP сенсори ----------
 
 class SvitloNextGridConnectionSensor(SvitloBaseEntity):
-    _attr_name = "Next grid connection"
+    _attr_translation_key = "svitlo_next_grid"
     _attr_icon = "mdi:clock-check"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -126,7 +126,7 @@ class SvitloNextGridConnectionSensor(SvitloBaseEntity):
 
 
 class SvitloNextOutageSensor(SvitloBaseEntity):
-    _attr_name = "Next Outage"
+    _attr_translation_key = "svitlo_next_outage"
     _attr_icon = "mdi:clock-alert"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -188,7 +188,7 @@ class SecondsRemainEntity(SvitloBaseEntity):
 
 # Тут нові класи і нові unique_id, як хотів автор PR
 class SvitloNextPowerOn(SecondsRemainEntity):
-    _attr_name = "Next Power On"
+    _attr_translation_key = "svitlo_next_power_on"
     _attr_icon = "mdi:lightbulb-on"
 
     def __init__(self, coordinator) -> None:
@@ -207,7 +207,7 @@ class SvitloNextPowerOn(SecondsRemainEntity):
 
 
 class SvitloNextPowerOff(SecondsRemainEntity):
-    _attr_name = "Next Power Off"
+    _attr_translation_key = "svitlo_next_power_off"
     _attr_icon = "mdi:lightbulb-off"
 
     def __init__(self, coordinator) -> None:
@@ -262,7 +262,7 @@ class _MinutesBase(SvitloBaseEntity):
 
 
 class SvitloMinutesToGridConnection(_MinutesBase):
-    _attr_name = "Minutes to grid connection"
+    _attr_translation_key = "svitlo_min_to_on"
     _attr_icon = "mdi:timer-sand"
 
     def __init__(self, coordinator) -> None:
@@ -280,7 +280,7 @@ class SvitloMinutesToGridConnection(_MinutesBase):
 
 
 class SvitloMinutesToOutage(_MinutesBase):
-    _attr_name = "Minutes to outage"
+    _attr_translation_key = "svitlo_min_to_off"
     _attr_icon = "mdi:timer-sand"
 
     def __init__(self, coordinator) -> None:
@@ -298,7 +298,7 @@ class SvitloMinutesToOutage(_MinutesBase):
 
 
 class SvitloScheduleUpdatedSensor(SvitloBaseEntity):
-    _attr_name = "Schedule Updated"
+    _attr_translation_key = "svitlo_updated"
     _attr_icon = "mdi:update"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
@@ -318,7 +318,7 @@ class SvitloScheduleUpdatedSensor(SvitloBaseEntity):
 # ---------- СТАТИСТИКА ----------
 
 class SvitloOutageHoursToday(SvitloBaseEntity):
-    _attr_name = "Total outage today"
+    _attr_translation_key = "svitlo_outage_today"
     _attr_icon = "mdi:clock-alert-outline"
     _attr_native_unit_of_measurement = UnitOfTime.HOURS
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -337,7 +337,7 @@ class SvitloOutageHoursToday(SvitloBaseEntity):
 
 
 class SvitloOutageHoursTomorrow(SvitloBaseEntity):
-    _attr_name = "Total outage tomorrow"
+    _attr_translation_key = "svitlo_outage_tomorrow"
     _attr_icon = "mdi:clock-arrow-right"
     _attr_native_unit_of_measurement = UnitOfTime.HOURS
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -356,7 +356,7 @@ class SvitloOutageHoursTomorrow(SvitloBaseEntity):
 
 
 class SvitloLongestOutage(SvitloBaseEntity):
-    _attr_name = "Longest continuous outage"
+    _attr_translation_key = "svitlo_longest_outage"
     _attr_icon = "mdi:clock-fast"
     _attr_native_unit_of_measurement = UnitOfTime.HOURS
     _attr_state_class = SensorStateClass.MEASUREMENT

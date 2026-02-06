@@ -181,8 +181,8 @@ class SvitloCalendar(CoordinatorEntity, CalendarEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
         data = getattr(self.coordinator, "data", {}) or {}
-        # Визначаємо поточний статус за графіком
-        now = datetime.now()
+        # Визначаємо поточний статус за графіком (у часовій зоні Києва)
+        now = dt_util.now(TZ_KYIV)
         index = now.hour * 2 + (1 if now.minute >= 30 else 0)
         today_sch = data.get("today_48half", [])
         now_status = today_sch[index] if index < len(today_sch) else "unknown"

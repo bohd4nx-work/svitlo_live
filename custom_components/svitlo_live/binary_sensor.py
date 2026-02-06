@@ -48,7 +48,7 @@ class SvitloBaseEntity(CoordinatorEntity):
 
 class SvitloElectricityStatusBinary(SvitloBaseEntity, BinarySensorEntity):
     """Бінарний сенсор: On = світло є; Off = відключення."""
-    _attr_name = "Electricity status"
+    _attr_translation_key = "svitlo_electricity_status"
     _attr_device_class = BinarySensorDeviceClass.POWER
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
@@ -73,7 +73,7 @@ class SvitloElectricityStatusBinary(SvitloBaseEntity, BinarySensorEntity):
 
 class SvitloEmergencyBinary(SvitloBaseEntity, BinarySensorEntity):
     """Сенсор аварійних відключень."""
-    _attr_name = "Emergency outages"
+    _attr_translation_key = "svitlo_emergency"
     # Без device_class
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
