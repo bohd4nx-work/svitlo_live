@@ -291,8 +291,6 @@ class SvitloLiveCardEditor extends HTMLElement {
 customElements.define('svitlo-live-card-editor', SvitloLiveCardEditor);
 
 
-// --- MAIN CARD CLASS ---
-
 class SvitloLiveCard extends HTMLElement {
   constructor() {
     super();
@@ -306,7 +304,6 @@ class SvitloLiveCard extends HTMLElement {
           <div id="container" style="padding: 16px;">
             
             <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 8px;">
-              
               <div style="display: flex; flex-direction: column; gap: 0px; flex: 1; min-width: 0;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <ha-icon id="power-icon" icon="mdi:power-plug-off" style="display: none; color: #ef5350; --mdc-icon-size: 32px; flex-shrink: 0;"></ha-icon>
@@ -361,9 +358,9 @@ class SvitloLiveCard extends HTMLElement {
               <div id="history-timeline" style="
                   display: none; 
                   flex-direction: column; 
-                  margin-top: 3px; 
+                  margin-top: 2px; 
               "></div>
-              
+
               <div id="ruler" style="height: 30px; position: relative; font-size: 11px; opacity: 0.5; margin-top: 4px; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; font-weight: 500;">
               </div>
             </div>
@@ -498,7 +495,6 @@ class SvitloLiveCard extends HTMLElement {
     const stateObj = hass.states[config.entity];
     const attrs = stateObj.attributes;
 
-    // --- КОНСТАНТИ ---
     const showStats = config.show_stats !== false;
     const showActualHistory = config.show_actual_history === true;
     const customStatusEntity = config.status_entity ? hass.states[config.status_entity] : null;
@@ -511,10 +507,20 @@ class SvitloLiveCard extends HTMLElement {
     const isDynamic = config.dynamic_timeline && hasTomorrow;
     const isToday = this._selectedDay === 'today';
 
-    // --- DOM ЕЛЕМЕНТИ ---
     const daySwitcher = this.querySelector('#day-switcher');
     const tomorrowTab = this.querySelector('#tomorrow-tab');
+    if (daySwitcher) {
+      daySwitcher.style.display = isDynamic ? 'none' : (hasTomorrow ? 'flex' : 'none');
+      if (tomorrowTab) tomorrowTab.style.display = hasTomorrow ? 'block' : 'none';
+    }
     const tabs = this.querySelectorAll('.day-tab');
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.day === this._selectedDay));
+
+    const titleEl = this.querySelector('#title');
+    if (titleEl) {
+      titleEl.innerText = config.title || (attrs.region && attrs.queue ? `${attrs.region} / ${attrs.queue}` : (attrs.friendly_name || "Svitlo.live").replace("Svitlo • ", "").replace(" Outages Schedule", ""));
+    }
+
     const historyLabelEl = this.querySelector('#history-label');
     const statusEl = this.querySelector('#status');
     const eb = this.querySelector('#emergency-banner');
@@ -523,13 +529,10 @@ class SvitloLiveCard extends HTMLElement {
     const rulerEl = this.querySelector('#ruler');
     const powerIcon = this.querySelector('#power-icon');
     const durationLabel = this.querySelector('#duration-label');
-
     const actualTimelineEl = this.querySelector('#actual-timeline');
     if (actualTimelineEl) actualTimelineEl.innerHTML = '';
 
-    // --- HELPER: TIME CALC ---
     const formatTime = (d) => `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-
     const toLocalDisplay = (targetIdx) => {
       const diffSlots = targetIdx - currentIdx;
       const diffMs = diffSlots * 30 * 60 * 1000;
@@ -539,19 +542,6 @@ class SvitloLiveCard extends HTMLElement {
       return { time: formatTime(targetDate), date: targetDate };
     };
 
-    // --- UI SETUP ---
-    if (daySwitcher) {
-      daySwitcher.style.display = isDynamic ? 'none' : (hasTomorrow ? 'flex' : 'none');
-      if (tomorrowTab) tomorrowTab.style.display = hasTomorrow ? 'block' : 'none';
-    }
-    tabs.forEach(t => t.classList.toggle('active', t.dataset.day === this._selectedDay));
-
-    const titleEl = this.querySelector('#title');
-    if (titleEl) {
-      titleEl.innerText = config.title || (attrs.region && attrs.queue ? `${attrs.region} / ${attrs.queue}` : (attrs.friendly_name || "Svitlo.live").replace("Svitlo • ", "").replace(" Outages Schedule", ""));
-    }
-
-    // --- 1. ПІДГОТОВКА ГРАФІКУ ---
     let schedule = [];
     let startOffsetIdx = 0;
 
@@ -565,8 +555,7 @@ class SvitloLiveCard extends HTMLElement {
 
     if (isDynamic) {
       startOffsetIdx = Math.max(0, currentIdx - 3);
-      const todayPart = (attrs.today_48half || []).slice(startOffsetIdx);
-      schedule = [...todayPart, ...tomorrowSch.slice(0, 48 - todayPart.length)];
+      schedule = [...(attrs.today_48half || []).slice(startOffsetIdx), ...tomorrowSch.slice(0, 48 - (attrs.today_48half || []).slice(startOffsetIdx).length)];
     } else {
       const shift = getLocalDayOffsetSlots();
       const base = isToday ? (attrs.today_48half || []) : tomorrowSch;
@@ -578,7 +567,6 @@ class SvitloLiveCard extends HTMLElement {
       schedule = [...part1, ...part2, ...padding];
     }
 
-    // --- 2. ЖИВИЙ СТАТУС ---
     let schedState = (attrs.today_48half && attrs.today_48half[currentIdx]) || 'unknown';
     let isOffCurrent = (schedState === 'off');
     let isUnknownCurrent = (schedState === 'unknown' || schedState === 'nosched' || !schedState);
@@ -606,39 +594,62 @@ class SvitloLiveCard extends HTMLElement {
       }
     }
 
+    let isEmergency = false;
+    if (config.emergency_entity) {
+      const emState = hass.states[config.emergency_entity];
+      if (emState && (emState.state === 'on' || emState.state === 'true')) isEmergency = true;
+    } else if (attrs.region && attrs.queue) {
+      const emEid = Object.keys(hass.states).find(eid => eid.includes('emergency') && hass.states[eid].attributes?.region === attrs.region && hass.states[eid].attributes?.queue === attrs.queue);
+      if (emEid && hass.states[emEid].state === 'on') isEmergency = true;
+    }
+    if (eb) eb.style.display = isEmergency ? 'block' : 'none';
+
     let rulerChangeTime = (config.use_status_entity && customStatusEntity && !isUnknownCurrent) ? new Date(customStatusEntity.last_changed) : null;
     if (powerIcon) powerIcon.style.display = (isOffCurrent && !isUnknownCurrent) ? 'inline' : 'none';
 
-    // --- 3. ЕФЕКТИВНИЙ ГРАФІК ---
     let changeSlotIdx = -1;
     let overlayPos = 0;
+
     if (rulerChangeTime && config.use_status_entity) {
-      const now = new Date();
-      const startOfCurrentSlotMs = now.getTime() - ((now.getMinutes() % 30) * 60000) - (now.getSeconds() * 1000);
-      const diffMs = rulerChangeTime.getTime() - startOfCurrentSlotMs;
+      const diffMs = rulerChangeTime.getTime() - toLocalDisplay(currentIdx).date.getTime();
       const diffSlots = Math.floor(diffMs / 1800000);
       changeSlotIdx = currentIdx + diffSlots;
-      overlayPos = ((diffMs - (diffSlots * 1800000)) / 1800000) * 100;
+
+      const slotStartMs = toLocalDisplay(changeSlotIdx).date.getTime();
+      const msInside = rulerChangeTime.getTime() - slotStartMs;
+      overlayPos = Math.max(0, Math.min(100, (msInside / 1800000) * 100));
+
+      if (overlayPos < 16.0) overlayPos = 0;
     }
+
     const cutoffIdx = (config.use_status_entity && rulerChangeTime) ? changeSlotIdx : currentIdx;
 
     const effectiveSchedule = schedule.map((state, i) => {
       const absIdx = startOffsetIdx + i;
       const isPast = absIdx < currentIdx;
+
       if (isPast && isToday && config.actual_outage_calendar_entity && showActualHistory) {
-        if (!this._actualOutages) return 'on';
-        const slotStartMs = toLocalDisplay(absIdx).date.getTime();
-        const slotEndMs = slotStartMs + 1800000;
-        let overlap = 0;
-        for (const ev of this._actualOutages) {
-          const s = new Date(ev.start.dateTime || ev.start.date).getTime();
-          const e = new Date(ev.end.dateTime || ev.end.date).getTime();
-          const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
-          if (oE > oS) overlap += (oE - oS);
+        if (config.use_status_entity && rulerChangeTime && absIdx >= changeSlotIdx) { /* skip */ }
+        else {
+          if (!this._actualOutages) return 'on';
+          const slotStartMs = toLocalDisplay(absIdx).date.getTime();
+          const slotEndMs = slotStartMs + 1800000;
+          let overlap = 0;
+          for (const ev of this._actualOutages) {
+            const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+            const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+            const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
+            if (oE > oS) overlap += (oE - oS);
+          }
+          return (overlap > 15 * 60000) ? 'off' : 'on';
         }
-        return (overlap > 15 * 60000) ? 'off' : 'on';
       }
-      if (config.use_status_entity && rulerChangeTime && absIdx >= cutoffIdx && absIdx <= currentIdx) return currentSlotState;
+
+      if (config.use_status_entity && rulerChangeTime) {
+        if (absIdx > changeSlotIdx && absIdx <= currentIdx) return currentSlotState;
+        if (absIdx === changeSlotIdx) return isOffCurrent ? 'on' : 'off';
+      }
+
       if (absIdx === currentIdx && !config.use_status_entity) return currentSlotState;
       return state || 'unknown';
     });
@@ -662,8 +673,7 @@ class SvitloLiveCard extends HTMLElement {
       durationLabel.style.display = 'none'; if (this._durationInterval) clearInterval(this._durationInterval);
     }
 
-    // --- 4. RENDERING TIMELINE ---
-    const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${rulerChangeTime}`;
+    const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${rulerChangeTime}_${isEmergency}`;
 
     if (timelineEl && this._lastRenderedKey !== scheduleKey) {
       this._lastRenderedKey = scheduleKey;
@@ -673,83 +683,79 @@ class SvitloLiveCard extends HTMLElement {
 
       const historyTimelineEl = this.querySelector('#history-timeline');
       if (historyTimelineEl) {
-        historyTimelineEl.innerHTML = '';
-        historyTimelineEl.style.display = 'none';
-        if (config.show_history) {
-          let histories = isToday ? attrs.history_today_48half : attrs.history_tomorrow_48half;
-          if (histories && Array.isArray(histories) && histories.length > 0) {
-            historyTimelineEl.style.display = 'flex';
-            histories.slice(0, 3).forEach(hist => {
-              const row = document.createElement('div');
-              row.style.display = 'flex'; row.style.height = '6px'; row.style.marginTop = '2px'; row.style.borderRadius = '2px'; row.style.overflow = 'hidden';
-              hist.slice(startOffsetIdx).forEach(s => {
-                const b = document.createElement('div'); b.style.flex = '1';
-                if (s === 'off') b.style.background = 'rgba(127, 0, 0, 0.6)';
-                else if (s === 'unknown') b.style.background = 'rgba(255, 255, 255, 0.05)';
-                else b.style.background = 'rgba(27, 94, 32, 0.6)';
-                b.style.borderRight = '1px solid rgba(0,0,0,0.1)';
-                row.appendChild(b);
-              });
-              const padCount = schedule.length - hist.slice(startOffsetIdx).length;
-              for (let k = 0; k < padCount; k++) { const b = document.createElement('div'); b.style.flex = '1'; row.appendChild(b); }
-              historyTimelineEl.appendChild(row);
+        historyTimelineEl.innerHTML = ''; historyTimelineEl.style.display = 'none';
+        let histories = isToday ? attrs.history_today_48half : attrs.history_tomorrow_48half;
+        if (config.show_history && histories && Array.isArray(histories) && histories.length > 0) {
+          historyTimelineEl.style.display = 'flex';
+          histories.slice(0, 3).forEach(hist => {
+            const row = document.createElement('div'); row.style.display = 'flex'; row.style.height = '6px'; row.style.marginTop = '2px'; row.style.borderRadius = '2px'; row.style.overflow = 'hidden';
+
+            // FIX: Просто обрізаємо історію без зшивання, щоб не було зсувів
+            hist.slice(startOffsetIdx).forEach(s => {
+              const b = document.createElement('div'); b.style.flex = '1';
+              if (s === 'off') b.style.background = 'rgba(127, 0, 0, 0.6)';
+              else if (s === 'unknown') b.style.background = 'rgba(255, 255, 255, 0.05)';
+              else b.style.background = 'rgba(27, 94, 32, 0.6)';
+              b.style.borderRight = '1px solid rgba(0,0,0,0.1)'; row.appendChild(b);
             });
-          }
+
+            // Добиваємо пустими блоками до кінця рядка (щоб закінчилось на 00:00)
+            const padCount = schedule.length - hist.slice(startOffsetIdx).length;
+            for (let k = 0; k < padCount; k++) { const b = document.createElement('div'); b.style.flex = '1'; row.appendChild(b); }
+            historyTimelineEl.appendChild(row);
+          });
         }
       }
 
       const totalSlots = effectiveSchedule.length;
       const occupiedPositions = [];
 
-      // ФУНКЦІЯ ЛЕЙБЛІВ: Пріоритет > Зсув > Видалення
       const addLabel = (text, pos, type = 'normal', priority = false, shift = null) => {
-        const threshold = (type === 'end') ? 5.0 : 8.0;
+        const threshold = 8.5;
+        const edgeThreshold = 14.5;
 
-        let conflictItem = null;
-        let minDist = 999;
+        let conflictItem = null; let minDist = 999;
 
         occupiedPositions.forEach(item => {
           const dist = Math.abs(item.pos - pos);
           if (dist < threshold && dist < minDist) { minDist = dist; conflictItem = item; }
         });
 
-        // 1. Кінець доби (00:00) вмирає, якщо поруч є будь-що (10% ~ 2.5 год)
-        if (type === 'end' && minDist < 10.0) return null;
+        if ((type === 'start' || type === 'end')) {
+          let edgeConflict = false;
+          occupiedPositions.forEach(item => {
+            if (Math.abs(item.pos - pos) < edgeThreshold) edgeConflict = true;
+          });
+          if (edgeConflict) return null;
+        }
 
-        // 2. Якщо ми звичайний лейбл (не пріоритет) і ліземо на інший (ближче 3.0% ~ 45 хв)
-        // ТО ПРОСТО НЕ МАЛЮЄМОСЬ. Це вирішує 17:30 на 17:31.
-        if (!priority && minDist < 3.0) return null;
+        if (!priority && conflictItem && conflictItem.priority && minDist < 5.0) return null;
+        if (priority && conflictItem && !conflictItem.priority && minDist < 5.0) {
+          if (conflictItem.element) conflictItem.element.remove();
+          const idx = occupiedPositions.indexOf(conflictItem);
+          if (idx > -1) occupiedPositions.splice(idx, 1);
+          conflictItem = null;
+        }
 
         const span = document.createElement('span');
         span.innerText = text;
-        span.style.cssText = `position:absolute;color:var(--secondary-text-color);top:0;`;
-        let myShift = '-50%';
+        span.style.cssText = `position:absolute;color:var(--secondary-text-color);top:0;transform:translateX(-50%);`;
 
-        if (shift) {
-          span.style.left = `${pos}%`; span.style.transform = `translateX(${shift})`; myShift = shift;
-        } else if (conflictItem) {
-          // 3. Якщо конфлікт все ж є (між 3% і 8%), м'яко розсуваємо
-          if (pos > conflictItem.pos) {
-            conflictItem.element.style.transform = 'translateX(-65%)';
-            myShift = '-35%';
-          } else {
-            conflictItem.element.style.transform = 'translateX(-35%)';
-            myShift = '-65%';
+        if (type === 'start') { span.style.left = '0'; span.style.transform = 'none'; }
+        else if (type === 'end') { span.style.right = '0'; span.style.left = 'auto'; span.style.transform = 'none'; }
+        else { span.style.left = `${pos}%`; }
+
+        if (conflictItem && minDist < threshold) {
+          const isNeighborDown = conflictItem.element.style.top === '14px';
+          if (!isNeighborDown) {
+            span.style.top = '14px';
           }
+          span.style.transform = 'translateX(-50%)';
         }
 
-        if (!shift) {
-          if (type === 'start') { span.style.left = '0'; span.style.transform = 'none'; }
-          else if (type === 'end') { span.style.right = '0'; span.style.left = 'auto'; span.style.transform = 'none'; }
-          else { span.style.left = `${pos}%`; span.style.transform = `translateX(${myShift})`; }
-        }
-
-        if (priority) {
-          span.style.color = '#fff'; span.style.fontWeight = 'bold'; span.style.zIndex = '15';
-        }
+        if (priority) { span.style.color = '#fff'; span.style.fontWeight = 'bold'; span.style.zIndex = '15'; }
 
         rulerEl.appendChild(span);
-        // Зберігаємо елемент і його пріоритет для майбутніх перевірок
         occupiedPositions.push({ pos: pos, element: span, priority: priority });
         return span;
       };
@@ -777,14 +783,35 @@ class SvitloLiveCard extends HTMLElement {
       effectiveSchedule.forEach((state, i) => {
         const absIdx = startOffsetIdx + i;
         const b = document.createElement('div'); b.className = 'timeline-block'; b.style.flex = '1'; b.style.height = '100%'; b.style.position = 'relative';
-        if (state === 'off') b.style.background = '#7f0000';
-        else if (state === 'unknown') b.style.background = 'rgba(255, 255, 255, 0.05)';
-        else b.style.background = '#1b5e20';
+
+        let bg = '#1b5e20';
+        if (state === 'off') bg = '#7f0000';
+        else if (state === 'unknown') bg = 'rgba(255, 255, 255, 0.05)';
+        b.style.background = bg;
         b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
 
         if (absIdx === changeSlotIdx && rulerChangeTime && config.use_status_entity && !isUnknownCurrent) {
-          const overlay = document.createElement('div'); overlay.style.position = 'absolute'; overlay.style.top = '0'; overlay.style.bottom = '0'; overlay.style.left = '0';
-          overlay.style.width = `${overlayPos}%`; overlay.style.background = isOffCurrent ? '#1b5e20' : '#7f0000'; overlay.style.zIndex = '2'; b.appendChild(overlay);
+          if (overlayPos === 0) {
+            b.style.background = isOffCurrent ? '#7f0000' : '#1b5e20';
+          } else {
+            if (i > 0) {
+              const prev = effectiveSchedule[i - 1];
+              if (isOffCurrent && prev === 'off') b.style.background = '#7f0000';
+              if (!isOffCurrent && prev === 'on') b.style.background = '#1b5e20';
+            } else {
+              b.style.background = isOffCurrent ? '#1b5e20' : '#7f0000';
+            }
+
+            const overlay = document.createElement('div');
+            overlay.style.position = 'absolute';
+            overlay.style.top = '0'; overlay.style.bottom = '0';
+            overlay.style.right = '0';
+            overlay.style.left = `${overlayPos}%`;
+            overlay.style.width = `${100 - overlayPos}%`;
+            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20';
+            overlay.style.zIndex = '2';
+            b.appendChild(overlay);
+          }
         }
         timelineEl.appendChild(b);
 
@@ -794,14 +821,11 @@ class SvitloLiveCard extends HTMLElement {
           m.style.cssText = `position:absolute;left:${(i / totalSlots) * 100}%;top:0;bottom:0;width:2px;background:rgba(0,0,0,0.8);z-index:20;pointer-events:none;transform:translateX(-50%);`; timelineEl.appendChild(m);
         }
 
-        if (i > 0 && effectiveSchedule[i] !== effectiveSchedule[i - 1]) {
+        if (i > 0 && schedule[i] !== schedule[i - 1]) {
+          if (config.show_actual_history && absIdx < currentIdx) return;
+
           const pos = (i / totalSlots) * 100;
           let currentShift = null;
-          // М'яке розсування (для планових)
-          if (lastLabelIndex !== -100 && (i - lastLabelIndex) <= 4) {
-            if (lastLabelElement) lastLabelElement.style.transform = 'translateX(-65%)';
-            currentShift = '-35%';
-          }
           const newLabel = addLabel(slotInfo.time, pos, 'normal', false, currentShift);
           if (newLabel) { lastLabelIndex = i; lastLabelElement = newLabel; }
         }

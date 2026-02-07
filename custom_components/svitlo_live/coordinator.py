@@ -112,6 +112,20 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ValueError(f"Region '{self.api_region_key}' not found in API response")
 
         # --- Стандартна логіка парсингу (без змін) ---
+        
+        # Check for Day Rollover (Midnight)
+        # If API date_today is different from the date in our last successful data,
+        # it means the day has switched.
+        if self.data and self.data.get("date") and date_today:
+            previous_date = self.data["date"]
+            if previous_date != date_today:
+                _LOGGER.debug("Day rollover detected: %s -> %s. Shifting history.", previous_date, date_today)
+                # User Request:
+                # 1. Clear today's history (by overwriting it)
+                # 2. Move tomorrow's history to today
+                self._history_today = self._history_tomorrow
+                self._history_tomorrow = []
+
         is_emergency = region_obj.get("emergency", False)
         schedule = (region_obj.get("schedule") or {}).get(self.queue) or {}
         slots_today_map = schedule.get(date_today) or {}
