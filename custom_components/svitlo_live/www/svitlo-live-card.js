@@ -959,8 +959,10 @@ class SvitloLiveCard extends HTMLElement {
             const overlay = document.createElement('div');
             overlay.style.position = 'absolute';
             overlay.style.top = '0'; overlay.style.bottom = '0';
-            // overlay.style.width = `${100 - changePos}%`; // Removed to prevent sub-pixel gaps
             overlay.style.right = '0'; // Ensure it snaps to the end
+            overlay.style.left = `${changePos}%`;
+            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // New State
+            // overlay.style.width = `${100 - changePos}%`; // Removed to prevent sub-pixel gaps
             overlay.style.zIndex = '2';
 
             // FIX: Move border from block to overlay to prevent "Green Line" artifact
