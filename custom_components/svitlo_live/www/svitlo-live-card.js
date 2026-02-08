@@ -40,12 +40,9 @@ class SvitloLiveCardEditor extends HTMLElement {
             <option value="">Завантаження списку...</option>
           </select>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Власний сенсор статусу (напр. розетка):</label>
-          <div id="status-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <ha-formfield label="Використовувати цей сенсор як основний пріоритет" style="display: flex; align-items: center;">
-            <ha-switch id="priority-switch"></ha-switch>
-          </ha-formfield>
+
+
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор екстрених відключень (необов'язково):</label>
           <div id="emergency-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
@@ -91,13 +88,22 @@ class SvitloLiveCardEditor extends HTMLElement {
           <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор оновлення графіку (необов'язково):</label>
           <div id="schedule-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Календар фактичних відключень (необов'язково):</label>
-          <div style="font-size: 11px; opacity: 0.6; margin: 2px 0 4px 0;">Якщо обрано — минулі слоти таймлайну показуватимуть фактичні відключення з календаря замість планових</div>
-          <div id="actual-calendar-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
-          
-          <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
-             <ha-switch id="actual-history-switch"></ha-switch>
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Власний сенсор статусу (напр. розетка):</label>
+          <div id="status-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
+          <ha-formfield label="Використовувати цей сенсор як основний пріоритет" style="display: flex; align-items: center; margin-top: 8px;">
+            <ha-switch id="priority-switch"></ha-switch>
           </ha-formfield>
+
+          <div id="actual-calendar-section">
+            <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Календар фактичних відключень (необов'язково):</label>
+            <div style="font-size: 11px; opacity: 0.6; margin: 2px 0 4px 0;">Якщо обрано — минулі слоти таймлайну показуватимуть фактичні відключення з календаря замість планових</div>
+            <div id="actual-calendar-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+            
+            <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
+               <ha-switch id="actual-history-switch"></ha-switch>
+            </ha-formfield>
+          </div>
         </div>
       `;
 
@@ -159,7 +165,7 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (scheduleContainer) {
       const selector = document.createElement("ha-selector");
       selector.hass = this._hass;
-      selector.selector = { entity: { domain: ['sensor'] } };
+      selector.selector = { entity: { domain: ['sensor'], integration: 'svitlo_live' } };
       selector.addEventListener("value-changed", (ev) => {
         this._valueChanged({ target: { configValue: 'schedule_entity', value: ev.detail.value } });
       });
@@ -172,7 +178,7 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (actualCalendarContainer) {
       const selector = document.createElement("ha-selector");
       selector.hass = this._hass;
-      selector.selector = { entity: { domain: ['calendar'] } };
+      selector.selector = { entity: { domain: ['calendar'], integration: 'svitlo_live' } };
       selector.addEventListener("value-changed", (ev) => {
         this._valueChanged({ target: { configValue: 'actual_outage_calendar_entity', value: ev.detail.value } });
       });
@@ -190,7 +196,15 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (selector) selector.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'entity', value: ev.target.value } }));
 
     const prioritySwitch = this.querySelector("#priority-switch");
-    if (prioritySwitch) prioritySwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'use_status_entity', value: ev.target.checked } }));
+    if (prioritySwitch) {
+      prioritySwitch.addEventListener("change", (ev) => {
+        this._valueChanged({ target: { configValue: 'use_status_entity', value: ev.target.checked } });
+
+        // Toggle Actual Calendar Visibility
+        const acSection = this.querySelector("#actual-calendar-section");
+        if (acSection) acSection.style.display = ev.target.checked ? 'block' : 'none';
+      });
+    }
 
     const dynamicSwitch = this.querySelector("#dynamic-switch");
     if (dynamicSwitch) dynamicSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'dynamic_timeline', value: ev.target.checked } }));
@@ -239,7 +253,13 @@ class SvitloLiveCardEditor extends HTMLElement {
     }
 
     const ps = this.querySelector("#priority-switch");
-    if (ps) ps.checked = this._config.use_status_entity || false;
+    if (ps) {
+      ps.checked = this._config.use_status_entity || false;
+
+      // Update Actual Calendar Visibility on Init
+      const acSection = this.querySelector("#actual-calendar-section");
+      if (acSection) acSection.style.display = ps.checked ? 'block' : 'none';
+    }
 
     const ds = this.querySelector("#dynamic-switch");
     if (ds) ds.checked = this._config.dynamic_timeline || false;
@@ -306,8 +326,8 @@ class SvitloLiveCard extends HTMLElement {
             <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 8px;">
               <div style="display: flex; flex-direction: column; gap: 0px; flex: 1; min-width: 0;">
                 <div style="display: flex; align-items: center; gap: 6px;">
-                  <ha-icon id="power-icon" icon="mdi:power-plug-off" style="display: none; color: #ef5350; --mdc-icon-size: 32px; flex-shrink: 0;"></ha-icon>
-                  <div id="title" style="font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.3px;">Svitlo.live</div>
+                  <ha-icon id="power-icon" icon="mdi:power-plug-off" style="display: none; color: #ef5350; --mdc-icon-size: 32px; flex-shrink: 0; margin-top: -4px;"></ha-icon>
+                  <div id="title" style="font-size: 20px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.3px;">Svitlo.live</div>
                 </div>
                 <div id="history-label" style="font-size: 12px; opacity: 0.55; white-space: nowrap; font-weight: 500; overflow: hidden; text-overflow: ellipsis;"></div>
                 <div id="duration-label" style="font-size: 11px; opacity: 0.45; white-space: nowrap; font-weight: 500; display: none;"></div>
@@ -502,7 +522,34 @@ class SvitloLiveCard extends HTMLElement {
     const kTime = this._getKyivTime();
     const currentIdx = kTime.h * 2 + (kTime.m >= 30 ? 1 : 0);
 
-    const tomorrowSch = attrs.tomorrow_48half || [];
+    // Verify Data Freshness (Handle Midnight Rollover)
+    // If attrs.date is Yesterday, we should use tomorrow_48half as Today.
+    let todayData = attrs.today_48half || [];
+    let tomorrowData = attrs.tomorrow_48half || [];
+    let history_today = attrs.history_today_48half || [];
+    let history_tomorrow = attrs.history_tomorrow_48half || [];
+
+    if (attrs.date) {
+      // Parse attrs.date (YYYY-MM-DD or ISO)
+      const dateStr = attrs.date.split('T')[0];
+      const kyivNowStr = new Date().toLocaleString("en-CA", { timeZone: "Europe/Kyiv" }).split(',')[0]; // "YYYY-MM-DD"
+
+      if (dateStr < kyivNowStr) {
+        // Data is STALE (Yesterday).
+        // Shift Tomorrow -> Today
+        todayData = tomorrowData;
+        tomorrowData = [];
+        // Also shift history if needed?
+        // Usually history attributes are separate, but if we shift schedule, we might need to shift history or rely on coordinator rollover.
+        // Let's rely on coordinator for history, but for DISPLAY of future schedule, we shift.
+      } else if (dateStr > kyivNowStr) {
+        // Data is FUTURE (Tomorrow is Today? Unlikely for this provider).
+        // But if so, we might have skipped a day?
+        // Treating as is for safety.
+      }
+    }
+
+    const tomorrowSch = tomorrowData;
     const hasTomorrow = tomorrowSch.length === 48;
     const isDynamic = config.dynamic_timeline && hasTomorrow;
     const isToday = this._selectedDay === 'today';
@@ -555,10 +602,10 @@ class SvitloLiveCard extends HTMLElement {
 
     if (isDynamic) {
       startOffsetIdx = Math.max(0, currentIdx - 3);
-      schedule = [...(attrs.today_48half || []).slice(startOffsetIdx), ...tomorrowSch.slice(0, 48 - (attrs.today_48half || []).slice(startOffsetIdx).length)];
+      schedule = [...todayData.slice(startOffsetIdx), ...tomorrowSch.slice(0, 48 - todayData.slice(startOffsetIdx).length)];
     } else {
       const shift = getLocalDayOffsetSlots();
-      const base = isToday ? (attrs.today_48half || []) : tomorrowSch;
+      const base = isToday ? todayData : tomorrowSch;
       const next = isToday ? tomorrowSch : [];
       startOffsetIdx = shift + (isToday ? 0 : 48);
       const part1 = base.slice(shift);
@@ -567,9 +614,16 @@ class SvitloLiveCard extends HTMLElement {
       schedule = [...part1, ...part2, ...padding];
     }
 
-    let schedState = (attrs.today_48half && attrs.today_48half[currentIdx]) || 'unknown';
+    let schedState = (todayData && todayData[currentIdx]) || 'unknown';
     let isOffCurrent = (schedState === 'off');
     let isUnknownCurrent = (schedState === 'unknown' || schedState === 'nosched' || !schedState);
+
+    // Explicitly handle Stats visibility
+    const statsEl = this.querySelector('#stats');
+    if (statsEl) {
+      if (showStats) statsEl.style.display = 'grid';
+      else statsEl.style.display = 'none';
+    }
 
     if (customStatusEntity && config.use_status_entity) {
       const cs = customStatusEntity.state;
@@ -605,12 +659,53 @@ class SvitloLiveCard extends HTMLElement {
     if (eb) eb.style.display = isEmergency ? 'block' : 'none';
 
     let rulerChangeTime = (config.use_status_entity && customStatusEntity && !isUnknownCurrent) ? new Date(customStatusEntity.last_changed) : null;
-    if (powerIcon) powerIcon.style.display = (isOffCurrent && !isUnknownCurrent) ? 'inline' : 'none';
+
+    // Fallback using Schedule if rulerChangeTime is not set (Status Entity missing or inactive)
+    if (!rulerChangeTime) {
+      // We use the Schedule (Plan) to determine "history"
+      const relativeCurrentIdx = currentIdx - startOffsetIdx;
+      const currentPlan = schedule[relativeCurrentIdx] || 'unknown';
+
+      let foundIdx = -1;
+      // Search backwards from current slot
+      for (let i = relativeCurrentIdx - 1; i >= 0; i--) {
+        if (schedule[i] !== currentPlan) {
+          foundIdx = i;
+          break;
+        }
+      }
+
+      if (foundIdx !== -1) {
+        // Transition happens at the end of foundIdx (start of foundIdx + 1)
+        const changeIdx = startOffsetIdx + foundIdx + 1;
+        rulerChangeTime = toLocalDisplay(changeIdx).date;
+      } else {
+        // No change found in the visible schedule window.
+        // Default to the start of the visible window.
+        rulerChangeTime = toLocalDisplay(startOffsetIdx).date;
+      }
+    }
+
+    if (powerIcon) {
+      if (!isUnknownCurrent) {
+        powerIcon.style.display = 'inline';
+        if (isOffCurrent) {
+          powerIcon.setAttribute('icon', 'mdi:lightbulb-off-outline');
+          powerIcon.style.color = '#ef5350';
+        } else {
+          powerIcon.setAttribute('icon', 'mdi:lightbulb-on');
+          powerIcon.style.color = '#fdd835'; // Restrained yellow
+        }
+      } else {
+        powerIcon.style.display = 'none';
+      }
+    }
 
     let changeSlotIdx = -1;
     let overlayPos = 0;
 
-    if (rulerChangeTime && config.use_status_entity) {
+    if (rulerChangeTime) {
+      // Calculate overlay/split position logic
       const diffMs = rulerChangeTime.getTime() - toLocalDisplay(currentIdx).date.getTime();
       const diffSlots = Math.floor(diffMs / 1800000);
       changeSlotIdx = currentIdx + diffSlots;
@@ -618,11 +713,10 @@ class SvitloLiveCard extends HTMLElement {
       const slotStartMs = toLocalDisplay(changeSlotIdx).date.getTime();
       const msInside = rulerChangeTime.getTime() - slotStartMs;
       overlayPos = Math.max(0, Math.min(100, (msInside / 1800000) * 100));
-
       if (overlayPos < 16.0) overlayPos = 0;
     }
 
-    const cutoffIdx = (config.use_status_entity && rulerChangeTime) ? changeSlotIdx : currentIdx;
+    const cutoffIdx = (config.use_status_entity && rulerChangeTime && config.use_status_entity) ? changeSlotIdx : currentIdx;
 
     const effectiveSchedule = schedule.map((state, i) => {
       const absIdx = startOffsetIdx + i;
@@ -646,7 +740,7 @@ class SvitloLiveCard extends HTMLElement {
       }
 
       if (config.use_status_entity && rulerChangeTime) {
-        if (absIdx > changeSlotIdx && absIdx <= currentIdx) return currentSlotState;
+        if (absIdx > changeSlotIdx && absIdx < currentIdx) return currentSlotState;
         if (absIdx === changeSlotIdx) return isOffCurrent ? 'on' : 'off';
       }
 
@@ -655,22 +749,29 @@ class SvitloLiveCard extends HTMLElement {
     });
 
     if (historyLabelEl) {
-      if (config.use_status_entity && customStatusEntity && rulerChangeTime) {
+      // Show label if rulerChangeTime exists AND config allows it
+      if (rulerChangeTime && config.show_change_time !== false) {
         historyLabelEl.innerText = `${isOffCurrent ? 'Світло вимкнули о' : 'Світло ввімкнули о'} ${formatTime(rulerChangeTime)}`;
       } else historyLabelEl.innerText = isToday ? '' : (attrs.tomorrow_date || "");
     }
 
-    if (durationLabel && rulerChangeTime && isOffCurrent && !isUnknownCurrent && config.show_duration !== false) {
-      durationLabel.style.display = 'block';
-      const updateDuration = () => {
-        const diffMins = Math.floor((new Date() - rulerChangeTime) / 60000);
-        durationLabel.innerText = `Тривалість: ${Math.floor(diffMins / 60).toString().padStart(2, '0')} год ${(diffMins % 60).toString().padStart(2, '0')} хв`;
-      };
-      updateDuration();
-      if (this._durationInterval) clearInterval(this._durationInterval);
-      this._durationInterval = setInterval(updateDuration, 60000);
-    } else {
-      durationLabel.style.display = 'none'; if (this._durationInterval) clearInterval(this._durationInterval);
+    if (durationLabel) {
+      // Relaxed condition: Show duration if we have a time, regardless of 'Use Status Entity'.
+      // Only check isUnknownCurrent? If isOffCurrent/isOnCurrent is derived from Schedule, it's valid.
+      // We assume if rulerChangeTime exists, we want to show duration.
+      if (rulerChangeTime && (config.show_duration !== false)) {
+        durationLabel.style.display = 'block';
+        const updateDuration = () => {
+          const diffMins = Math.floor((new Date() - rulerChangeTime) / 60000);
+          durationLabel.innerText = `Тривалість: ${Math.floor(diffMins / 60).toString().padStart(2, '0')} год ${(diffMins % 60).toString().padStart(2, '0')} хв`;
+        };
+        updateDuration();
+        if (this._durationInterval) clearInterval(this._durationInterval);
+        this._durationInterval = setInterval(updateDuration, 60000);
+      } else {
+        durationLabel.style.display = 'none';
+        if (this._durationInterval) clearInterval(this._durationInterval);
+      }
     }
 
     const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${rulerChangeTime}_${isEmergency}`;
@@ -790,25 +891,66 @@ class SvitloLiveCard extends HTMLElement {
         b.style.background = bg;
         b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
 
-        if (absIdx === changeSlotIdx && rulerChangeTime && config.use_status_entity && !isUnknownCurrent) {
-          if (overlayPos === 0) {
-            b.style.background = isOffCurrent ? '#7f0000' : '#1b5e20';
-          } else {
-            if (i > 0) {
-              const prev = effectiveSchedule[i - 1];
-              if (isOffCurrent && prev === 'off') b.style.background = '#7f0000';
-              if (!isOffCurrent && prev === 'on') b.style.background = '#1b5e20';
-            } else {
-              b.style.background = isOffCurrent ? '#1b5e20' : '#7f0000';
+        if (config.use_status_entity && !isUnknownCurrent) {
+          // Special handling for Current Slot to support "Split" visualization
+          // Left of Now = Actual, Right of Now = Plan
+          if (absIdx === currentIdx) {
+            const scheduleState = state; // Plan
+
+            // Check if Deviation exists (Actual != Plan)
+            // But beware: Pre-change might have matched Plan, Post-change mismatch.
+            // Or Pre-change mismatch, Post-change match?
+            // "Last event 00:38 ON" (Green). Plan likely Red.
+            // So Post-Change (Green) != Plan (Red).
+
+            if (currentSlotState !== scheduleState) {
+              const now = new Date();
+              const nowPercent = Math.min(100, Math.max(0, ((now.getMinutes() % 30) / 30) * 100 + ((now.getSeconds() / 60) / 30) * 100));
+
+              let changePercent = 0;
+              // Only respect changeTime if it is in THIS slot.
+              if (absIdx === changeSlotIdx && rulerChangeTime) {
+                const slotStartMs = toLocalDisplay(absIdx).date.getTime(); // Re-calculate or reuse? toLocalDisplay creates new Date.
+                // We can infer slot start from index logic if reliable, but toLocalDisplay is consistent.
+                // Wait, toLocalDisplay(absIdx) helper is available in scope? Yes.
+                const sTime = toLocalDisplay(absIdx).date.getTime();
+                changePercent = Math.min(100, Math.max(0, ((rulerChangeTime.getTime() - sTime) / 1800000) * 100));
+              }
+
+              // Draw Overlay from Change -> End of Slot (Status Projection)
+              // User wants "Ahead is also Green" if currently Green.
+              // So we extend the Current Status to the end of the slot (100%), overriding the Plan.
+
+              const overlay = document.createElement('div');
+              overlay.style.position = 'absolute';
+              overlay.style.top = '0'; overlay.style.bottom = '0';
+              overlay.style.left = `${changePercent}%`;
+              overlay.style.width = `${100 - changePercent}%`; // Extend to End
+              overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // Actual color
+              overlay.style.zIndex = '2';
+              b.appendChild(overlay);
             }
+          }
+          else if (config.use_status_entity && !isUnknownCurrent && absIdx === changeSlotIdx && rulerChangeTime && absIdx !== currentIdx) {
+            // Here we might have partial overlay too, but from ChangeTime to Right.
+            // Re-implement basic overlay logic for the "Start of Deviation" slot if strictly needed.
+            // existing logic handles this via 'effectiveSchedule' returning specific state?
+            // The 'effectiveSchedule' map says: if absIdx === changeSlotIdx return isOffCurrent ? 'on' : 'off'.
+            // This means the BASE BACKGROUND is the OLD state (before change).
+            // So we need to overlay the NEW state from ChangeTime -> Right.
+
+            // Calculate position inside this slot
+            const slotStartMs = toLocalDisplay(changeSlotIdx).date.getTime();
+            const msInside = rulerChangeTime.getTime() - slotStartMs;
+            const changePos = Math.max(0, Math.min(100, (msInside / 1800000) * 100));
 
             const overlay = document.createElement('div');
             overlay.style.position = 'absolute';
             overlay.style.top = '0'; overlay.style.bottom = '0';
             overlay.style.right = '0';
-            overlay.style.left = `${overlayPos}%`;
-            overlay.style.width = `${100 - overlayPos}%`;
-            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20';
+            overlay.style.left = `${changePos}%`;
+            overlay.style.width = `${100 - changePos}%`;
+            overlay.style.background = isOffCurrent ? '#7f0000' : '#1b5e20'; // New State
             overlay.style.zIndex = '2';
             b.appendChild(overlay);
           }
@@ -821,8 +963,9 @@ class SvitloLiveCard extends HTMLElement {
           m.style.cssText = `position:absolute;left:${(i / totalSlots) * 100}%;top:0;bottom:0;width:2px;background:rgba(0,0,0,0.8);z-index:20;pointer-events:none;transform:translateX(-50%);`; timelineEl.appendChild(m);
         }
 
-        if (i > 0 && schedule[i] !== schedule[i - 1]) {
-          if (config.show_actual_history && absIdx < currentIdx) return;
+        if (i > 0 && effectiveSchedule[i] !== effectiveSchedule[i - 1]) {
+          // Allow labels for past slots even if show_actual_history is on.
+          // if (config.show_actual_history && absIdx < currentIdx) return; 
 
           const pos = (i / totalSlots) * 100;
           let currentShift = null;
@@ -848,9 +991,21 @@ class SvitloLiveCard extends HTMLElement {
       const getNextChangeInfo = () => {
         let startIndex = isToday ? Math.floor((new Date().getHours() * 60 + new Date().getMinutes()) / 30) + 1 : 0;
         if (isDynamic) startIndex = (currentIdx - startOffsetIdx) + 1;
-        const currentState = effectiveSchedule[startIndex - 1] || effectiveSchedule[0];
+
+        // Use 'schedule' (Plan) instead of 'effectiveSchedule' (View) for predictions
+        // taking into account startOffsetIdx
+        // schedule[] is already sliced/prepared? 
+        // In this scope, 'schedule' is the array used to build the view. 
+        // effectiveSchedule was schedule.map(...). 
+        // So 'schedule' holds the raw plan data (Green/Red/Grey).
+
+        const currentState = schedule[startIndex - 1] || schedule[0];
         const targetState = (currentState === 'off') ? 'on' : 'off';
-        let found = -1; for (let i = startIndex; i < effectiveSchedule.length; i++) { if (effectiveSchedule[i] === targetState) { found = i; break; } }
+        let found = -1;
+        for (let i = startIndex; i < schedule.length; i++) {
+          if (schedule[i] === targetState) { found = i; break; }
+        }
+
         if (found !== -1) {
           const local = toLocalDisplay(startOffsetIdx + found); let val = local.time;
           if (local.date.getDate() !== new Date().getDate()) val += ` ${local.date.getDate().toString().padStart(2, '0')}.${(local.date.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -869,9 +1024,9 @@ class SvitloLiveCard extends HTMLElement {
       const renderStat = (type, lEl, vEl) => {
         if (!lEl || !vEl) return;
         if (type === 'hours_without_light') {
-          let offMins = 0; effectiveSchedule.forEach(s => { if (s === 'off') offMins += 30; });
+          let offMins = 0; schedule.forEach(s => { if (s === 'off') offMins += 30; });
           lEl.innerText = isDynamic ? "У найближчі 24г без світла" : "Всього за добу без світла";
-          vEl.innerText = `${parseFloat((offMins / 60).toFixed(1))} год (${Math.round((offMins / (effectiveSchedule.length * 30)) * 100)}%)`;
+          vEl.innerText = `${parseFloat((offMins / 60).toFixed(1))} год (${Math.round((offMins / (schedule.length * 30)) * 100)}%)`;
         } else if (type === 'next_change') { const i = getNextChangeInfo(); lEl.innerText = i.label; vEl.innerText = i.value; }
         else if (type === 'countdown') { const i = getCountdownInfo(); lEl.innerText = i.label; vEl.innerText = i.value; }
         else if (type === 'schedule_updated' && config.schedule_entity && hass.states[config.schedule_entity]) {
