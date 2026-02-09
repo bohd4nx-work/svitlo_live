@@ -40,6 +40,18 @@ class SvitloApiHub:
         old_data = await self.ensure_data(is_new=False)
         new_data = await self.ensure_data(is_new=True)
 
+        # --- DEBUG LOGGING ---
+        if new_data:
+            regions_new = new_data.get("regions", [])
+            _LOGGER.info(
+                "New API fetched %d regions. IDs: %s", 
+                len(regions_new),
+                [r.get("cpu") for r in regions_new]
+            )
+        else:
+            _LOGGER.warning("New API data is empty or None")
+        # ---------------------
+
         merged_regions = {}
 
         # Parse New API (usually higher priority or has different slugs)
