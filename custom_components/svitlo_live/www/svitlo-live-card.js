@@ -825,7 +825,7 @@ class SvitloLiveCard extends HTMLElement {
       }
 
       if (config.use_status_entity && rulerChangeTime) {
-        if (absIdx > changeSlotIdx && absIdx < currentIdx) return currentSlotState;
+        if (absIdx > changeSlotIdx && absIdx <= currentIdx) return currentSlotState;
         if (absIdx === changeSlotIdx) return isOffCurrent ? 'on' : 'off';
       }
 
@@ -897,16 +897,18 @@ class SvitloLiveCard extends HTMLElement {
       const occupiedPositions = [];
 
       const addLabel = (text, pos, type = 'normal', priority = false, shift = null) => {
-        const threshold = 8.5;
-        const edgeThreshold = 17.0;
+        const ZIGZAG_THRESHOLD = 8.3; // ~2 hours. Closer than this -> ZigZag (2nd row)
+        const SPREAD_THRESHOLD = 16.7; // ~4 hours. Closer than this -> Spread (Nudge text)
+        const edgeThreshold = 12.0; // Distance to hide Start/End if conflict exists
 
         let conflictItem = null; let minDist = 999;
 
         occupiedPositions.forEach(item => {
           const dist = Math.abs(item.pos - pos);
-          if (dist < threshold && dist < minDist) { minDist = dist; conflictItem = item; }
+          if (dist < SPREAD_THRESHOLD && dist < minDist) { minDist = dist; conflictItem = item; }
         });
 
+        // Start/End should ideally not be blocked, but check edge threshold
         if ((type === 'start' || type === 'end')) {
           let edgeConflict = false;
           occupiedPositions.forEach(item => {
@@ -915,8 +917,9 @@ class SvitloLiveCard extends HTMLElement {
           if (edgeConflict) return null;
         }
 
-        if (!priority && conflictItem && conflictItem.priority && minDist < 5.0) return null;
-        if (priority && conflictItem && !conflictItem.priority && minDist < 5.0) {
+        // Priority logic (remove non-priority conflict if very close)
+        if (!priority && conflictItem && conflictItem.priority && minDist < 3.0) return null;
+        if (priority && conflictItem && !conflictItem.priority && minDist < 3.0) {
           if (conflictItem.element) conflictItem.element.remove();
           const idx = occupiedPositions.indexOf(conflictItem);
           if (idx > -1) occupiedPositions.splice(idx, 1);
@@ -931,20 +934,58 @@ class SvitloLiveCard extends HTMLElement {
         else if (type === 'end') { span.style.right = '0'; span.style.left = 'auto'; span.style.transform = 'none'; }
         else { span.style.left = `${pos}%`; }
 
-        if (conflictItem && minDist < threshold) {
+        // Layout Logic
+        if (conflictItem && minDist < SPREAD_THRESHOLD && type !== 'start' && type !== 'end') {
           const isNeighborDown = conflictItem.element.style.top === '14px';
-          if (!isNeighborDown) {
-            span.style.top = '14px';
+
+          if (minDist < ZIGZAG_THRESHOLD) {
+            // Too close (<2h): ZigZag
+            // If neighbor is UP, we go DOWN (unless we are 'start'/'end' which prefer UP)
+            if (!isNeighborDown && type !== 'start' && type !== 'end') {
+              span.style.top = '14px';
+            }
+            // If neighbor is DOWN, we stay UP (default).
+          } else {
+            // Close but manageable (2h-4h): Spread/Nudge
+            // Standard transform is translateX(-50%).
+            // If neighbor is LEFT, shift RIGHT.
+            const factor = Math.max(0, Math.min(1, (minDist - ZIGZAG_THRESHOLD) / (SPREAD_THRESHOLD - ZIGZAG_THRESHOLD)));
+            // Factor 0 (at 2h) -> Max shift. Factor 1 (at 4h) -> Normal centered (-50%).
+
+            if (conflictItem.pos < pos) {
+              // Conflict is Left. Shift Right.
+              // TX goes from -10% (at 2h) to -50% (at 4h).
+              const tx = 10 + (40 * factor);
+              span.style.transform = `translateX(-${tx}%)`;
+
+              // Mutual Spread: Shift Neighbor Left (ONLY if not anchor)
+              if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
+                const neighborTx = 90 - (40 * factor);
+                if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
+              }
+
+            } else {
+              // Conflict is Right. Shift Left.
+              // TX goes from -90% (at 2h) to -50% (at 4h).
+              const tx = 90 - (40 * factor);
+              span.style.transform = `translateX(-${tx}%)`;
+
+              // Mutual Spread: Shift Neighbor Right (ONLY if not anchor)
+              if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
+                const neighborTx = 10 + (40 * factor);
+                if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
+              }
+            }
           }
-          span.style.transform = 'translateX(-50%)';
         }
 
         if (priority) { span.style.color = '#fff'; span.style.fontWeight = 'bold'; span.style.zIndex = '15'; }
 
         rulerEl.appendChild(span);
-        occupiedPositions.push({ pos: pos, element: span, priority: priority });
+        occupiedPositions.push({ pos: pos, element: span, priority: priority, type: type });
         return span;
       };
+
 
       if (showActualHistory && this._actualOutages && isToday) {
         const tStartMs = toLocalDisplay(startOffsetIdx).date.getTime();
@@ -1071,8 +1112,13 @@ class SvitloLiveCard extends HTMLElement {
         }
 
         if (i > 0 && effectiveSchedule[i] !== effectiveSchedule[i - 1]) {
-          // Allow labels for past slots even if show_actual_history is on.
-          // if (config.show_actual_history && absIdx < currentIdx) return; 
+          // Hide past planned labels if actual history is enabled.
+          if (config.show_actual_history && absIdx <= currentIdx) return;
+
+          // Fix Ghost Label: Suppress label at Current Time boundary if the PLAN didn't change.
+          // This prevents artifact labels (e.g. 18:00) when switching from History(Green) to Plan(Red)
+          // but the Plan itself is constant (Red->Red).
+          if (absIdx === currentIdx && schedule[i] === schedule[i - 1]) return;
 
           const pos = (i / totalSlots) * 100;
           let currentShift = null;
@@ -1080,7 +1126,9 @@ class SvitloLiveCard extends HTMLElement {
           if (newLabel) { lastLabelIndex = i; lastLabelElement = newLabel; }
         }
       });
-      addLabel(toLocalDisplay(startOffsetIdx).time, 0, 'start', true);
+
+      // Add Start/End Last (Low Priority - Hide if conflict)
+      addLabel(toLocalDisplay(startOffsetIdx).time, 0, 'start', false);
       addLabel(toLocalDisplay(startOffsetIdx + totalSlots).time, 100, 'end', false);
     }
 
