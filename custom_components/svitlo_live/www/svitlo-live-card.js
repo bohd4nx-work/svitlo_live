@@ -98,10 +98,6 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-formfield label="Фарбувати минулі слоти по фактичним відключенням" style="display: flex; align-items: center; margin-top: 8px;">
                <ha-switch id="actual-history-switch"></ha-switch>
             </ha-formfield>
-
-             <ha-formfield label="Брати історію з сенсора ( замість календаря )" style="display: flex; align-items: center; margin-top: 8px;" id="use-history-api-field">
-                <ha-switch id="use-history-api-switch"></ha-switch>
-             </ha-formfield>
           </div>
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Налаштування кольорів:</label>
@@ -187,18 +183,7 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._scheduleSelector = selector;
     }
 
-    const actualCalendarContainer = this.querySelector("#actual-calendar-picker-container");
-    if (actualCalendarContainer) {
-      const selector = document.createElement("ha-selector");
-      selector.hass = this._hass;
-      selector.selector = { entity: { domain: ['calendar'], integration: 'svitlo_live' } };
-      selector.addEventListener("value-changed", (ev) => {
-        this._valueChanged({ target: { configValue: 'actual_outage_calendar_entity', value: ev.detail.value } });
-      });
-      actualCalendarContainer.innerHTML = "";
-      actualCalendarContainer.appendChild(selector);
-      this._actualCalendarSelector = selector;
-    }
+    this._scheduleSelector = selector;
   }
 
   _setupEventListeners() {
@@ -280,9 +265,6 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahSwitch = this.querySelector("#actual-history-switch");
     if (ahSwitch) ahSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_actual_history', value: ev.target.checked } }));
-
-    const uhaSwitch = this.querySelector("#use-history-api-switch");
-    if (uhaSwitch) uhaSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'use_history_api', value: ev.target.checked } }));
   }
 
   _updateProperties() {
@@ -320,18 +302,10 @@ class SvitloLiveCardEditor extends HTMLElement {
       const acSection = this.querySelector("#actual-calendar-section");
       if (acSection) acSection.style.display = ps.checked ? 'block' : 'none';
 
-      // Toggle History API Switch Visibility
-      // Toggle History API Switch Visibility - decouple from priority switch?
-      // No, user request implies we want to use History from THE SENSOR we are looking at.
-      // If priority switch is OFF, we look at Main Entity.
-      // So let's always show 'Use History API' but maybe rephrase it.
-      // Actually, let's keep it generally available.
-      const uhaField = this.querySelector("#use-history-api-field");
-      if (uhaField) uhaField.style.display = 'flex';
+      // Toggle Actual Calendar Visibility - REMOVED
+      // Toggle History API Switch Visibility - REMOVED
+      // All controlled by 'show_actual_history' now.
     }
-
-    const uhaSwitch = this.querySelector("#use-history-api-switch");
-    if (uhaSwitch) uhaSwitch.checked = this._config.use_history_api === true;
 
     const ds = this.querySelector("#dynamic-switch");
     if (ds) ds.checked = this._config.dynamic_timeline || false;
@@ -363,10 +337,7 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._scheduleSelector.value = this._config.schedule_entity || '';
     }
 
-    if (this._actualCalendarSelector) {
-      this._actualCalendarSelector.hass = this._hass;
-      this._actualCalendarSelector.value = this._config.actual_outage_calendar_entity || '';
-    }
+    this._scheduleSelector.value = this._config.schedule_entity || '';
 
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
@@ -542,17 +513,17 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     this._hass = hass;
-    if (this.config && this.config.actual_outage_calendar_entity) {
-      this._fetchActualOutages(hass);
-    } else if (this.config && this.config.use_history_api) {
-      // Fetch history if enabled, regardless of status_entity presence
-      this._fetchHistoryFromEntity(hass);
+    if (this.config && (this.config.show_actual_history !== false)) { // Default to true if undefined? No, usually defaults false in UI, but let's assume if checked.
+      // The switch logic in editor defaults false.
+      if (this.config.show_actual_history) {
+        this._fetchHistoryFromEntity(hass);
+      }
     }
     this._renderWithCurrentDay(hass);
   }
 
   async _fetchHistoryFromEntity(hass) {
-    if (!this.config || !this.config.use_history_api) return;
+    if (!this.config || !this.config.show_actual_history) return;
 
     // Determine which entity to fetch history for.
     // "From THIS sensor" implies status_entity if configured, even if not used as priority.
@@ -660,36 +631,8 @@ class SvitloLiveCard extends HTMLElement {
     }
   }
 
-  async _fetchActualOutages(hass) {
-    if (!this.config || !this.config.actual_outage_calendar_entity) return;
 
-    const now = Date.now();
-    if (this._lastCalendarFetch && (now - this._lastCalendarFetch < 30000)) return;
-    this._lastCalendarFetch = now;
-
-    const startRange = new Date(now - 24 * 60 * 60 * 1000);
-    const endRange = new Date(now + 48 * 60 * 60 * 1000);
-
-    try {
-      const entityId = this.config.actual_outage_calendar_entity;
-      const startISO = startRange.toISOString();
-      const endISO = endRange.toISOString();
-
-      const response = await hass.callApi(
-        'GET',
-        `calendars/${entityId}?start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}`
-      );
-      const rawEvents = Array.isArray(response) ? response : [];
-      this._actualOutages = rawEvents.filter(ev => {
-        const s = new Date(ev.start.dateTime || ev.start.date).getTime();
-        const e = new Date(ev.end.dateTime || ev.end.date).getTime();
-        return (e - s) >= 15 * 60000;
-      });
-      this._renderWithCurrentDay(hass);
-    } catch (e) {
-      console.warn("SvitloLive: Error fetching calendar events", e);
-    }
-  }
+  // _fetchActualOutages REMOVED
 
   _getKyivTime() {
     const now = new Date();
@@ -938,7 +881,7 @@ class SvitloLiveCard extends HTMLElement {
       const absIdx = startOffsetIdx + i;
       const isPast = absIdx < currentIdx;
 
-      if (isPast && isToday && config.actual_outage_calendar_entity && showActualHistory) {
+      if (isPast && isToday && config.show_actual_history && showActualHistory) {
         if (config.use_status_entity && rulerChangeTime && absIdx >= changeSlotIdx) { /* skip */ }
         else {
           const slotStartMs = toLocalDisplay(absIdx).date.getTime();
@@ -1173,48 +1116,77 @@ class SvitloLiveCard extends HTMLElement {
 
         // Pixel-perfect history rendering:
         // If we are in history mode (past), let's override the base block color with precise overlays.
-        const isHistoryMode = (config.use_history_api || config.use_status_entity || (config.actual_outage_calendar_entity && showActualHistory))
+        const isHistoryMode = (config.show_actual_history)
           && isPast && isToday && (!rulerChangeTime || absIdx < changeSlotIdx);
 
         if (isHistoryMode) {
-          // Base is Green (On)
-          bg = COLOR_ON;
-          b.style.background = bg;
-          b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
-
           const slotStartMs = toLocalDisplay(absIdx).date.getTime();
           const slotEndMs = slotStartMs + 1800000;
+          const slotDuration = 1800000;
 
-          // Draw Unknown Overlays first (Black)
-          if (this._unknownIntervals) {
-            this._unknownIntervals.forEach(ev => {
-              const s = new Date(ev.start.dateTime || ev.start.date).getTime();
-              const e = new Date(ev.end.dateTime || ev.end.date).getTime();
-              const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
-              if (oE > oS) {
-                const startP = ((oS - slotStartMs) / 1800000) * 100;
-                const widthP = ((oE - oS) / 1800000) * 100;
-                const ov = document.createElement('div');
-                ov.style.cssText = `position:absolute;top:0;bottom:0;left:${startP}%;width:${widthP}%;background:#000000;z-index:1;`;
-                b.appendChild(ov);
-              }
-            });
-          }
+          // Calculate total coverage for outage and unknown
+          let totalOutageCoverage = 0;
+          let totalUnknownCoverage = 0;
+          const outageSegments = [];
+          const unknownSegments = [];
 
-          // Draw Outage Overlays (Red) - on top of Unknown? or intertwined? 
-          // Assuming strict separation by smoothing, but Outage usually overrides Unknown visually if overlap.
           if (this._actualOutages) {
             this._actualOutages.forEach(ev => {
               const s = new Date(ev.start.dateTime || ev.start.date).getTime();
               const e = new Date(ev.end.dateTime || ev.end.date).getTime();
               const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
               if (oE > oS) {
-                const startP = ((oS - slotStartMs) / 1800000) * 100;
-                const widthP = ((oE - oS) / 1800000) * 100;
-                const ov = document.createElement('div');
-                ov.style.cssText = `position:absolute;top:0;bottom:0;left:${startP}%;width:${widthP}%;background:${COLOR_OFF};z-index:2;`;
-                b.appendChild(ov);
+                totalOutageCoverage += (oE - oS);
+                outageSegments.push({ oS, oE });
               }
+            });
+          }
+          if (this._unknownIntervals) {
+            this._unknownIntervals.forEach(ev => {
+              const s = new Date(ev.start.dateTime || ev.start.date).getTime();
+              const e = new Date(ev.end.dateTime || ev.end.date).getTime();
+              const oS = Math.max(s, slotStartMs); const oE = Math.min(e, slotEndMs);
+              if (oE > oS) {
+                totalUnknownCoverage += (oE - oS);
+                unknownSegments.push({ oS, oE });
+              }
+            });
+          }
+
+          const outagePct = totalOutageCoverage / slotDuration;
+          const unknownPct = totalUnknownCoverage / slotDuration;
+
+          // If slot is almost fully covered by outage (>=95%), just paint it as solid red
+          if (outagePct >= 0.95) {
+            bg = COLOR_OFF;
+            b.style.background = bg;
+            b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+          } else if (unknownPct >= 0.95 && outagePct < 0.05) {
+            bg = '#000000';
+            b.style.background = bg;
+            b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+          } else {
+            // Partial coverage — use green base with overlays
+            bg = COLOR_ON;
+            b.style.background = bg;
+            b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
+
+            // Draw Unknown Overlays first (Black)
+            unknownSegments.forEach(seg => {
+              const startP = ((seg.oS - slotStartMs) / slotDuration) * 100;
+              const widthP = ((seg.oE - seg.oS) / slotDuration) * 100;
+              const ov = document.createElement('div');
+              ov.style.cssText = `position:absolute;top:0;bottom:0;left:${startP}%;width:${widthP}%;background:#000000;z-index:1;`;
+              b.appendChild(ov);
+            });
+
+            // Draw Outage Overlays (Red)
+            outageSegments.forEach(seg => {
+              const startP = ((seg.oS - slotStartMs) / slotDuration) * 100;
+              const widthP = ((seg.oE - seg.oS) / slotDuration) * 100;
+              const ov = document.createElement('div');
+              ov.style.cssText = `position:absolute;top:0;bottom:0;left:${startP}%;width:${widthP}%;background:${COLOR_OFF};z-index:2;`;
+              b.appendChild(ov);
             });
           }
         } else {
@@ -1421,7 +1393,7 @@ class SvitloLiveCard extends HTMLElement {
       renderStat(config.left_stat_type || 'hours_without_light', this.querySelector('#left-stat-label'), this.querySelector('#left-stat-value'));
       renderStat(config.right_stat_type || 'schedule_updated', this.querySelector('#right-stat-label'), this.querySelector('#right-stat-value'));
     }
-  }
+  } // Close _renderWithCurrentDay
 
   setConfig(config) { this.config = config; }
   static getConfigElement() { return document.createElement("svitlo-live-card-editor"); }
