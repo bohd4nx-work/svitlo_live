@@ -869,7 +869,7 @@ class SvitloLiveCard extends HTMLElement {
 
     let histories = isToday ? attrs.history_today_48half : attrs.history_tomorrow_48half;
 
-    // FIX: Include history data in the cache key to force re-render when history updates
+    // Using previous cache logic
     const scheduleKey = `${isDynamic}_${startOffsetIdx}_${JSON.stringify(effectiveSchedule)}_${JSON.stringify(histories)}_${rulerChangeTime?.getTime()}_${isEmergency}_${currentSlotState}`;
 
     if (timelineEl && this._lastRenderedKey !== scheduleKey) {
@@ -886,9 +886,7 @@ class SvitloLiveCard extends HTMLElement {
         if (config.show_history && histories && Array.isArray(histories) && histories.length > 0) {
           historyTimelineEl.style.display = 'flex';
           histories.slice(0, 3).forEach(hist => {
-            // Check if hist is array (it should be according to YAML)
             if (!Array.isArray(hist)) return;
-
             const row = document.createElement('div');
             row.style.display = 'flex';
             row.style.height = '6px';
@@ -925,6 +923,19 @@ class SvitloLiveCard extends HTMLElement {
         const SPREAD_THRESHOLD = 16.7;
         const edgeThreshold = 17.0;
 
+        // 1. Якщо ми додаємо ЗВИЧАЙНУ мітку (напр. 12:30), спочатку перевіряємо ВСІ пріоритетні мітки
+        if (!priority) {
+          for (const item of occupiedPositions) {
+            if (item.priority) {
+              const dist = Math.abs(item.pos - pos);
+              const isPast = pos < item.pos;
+              // Агресивно чистимо минуле (25%), стандартно майбутнє (4%)
+              if (dist < (isPast ? 25.0 : 4.0)) return null;
+            }
+          }
+        }
+
+        // 2. Шукаємо найближчого сусіда для стандартної логіки zigzag/overlap
         let conflictItem = null;
         let minDist = 999;
 
@@ -944,12 +955,36 @@ class SvitloLiveCard extends HTMLElement {
           if (edgeConflict) return null;
         }
 
-        if (!priority && conflictItem && conflictItem.priority && minDist < 3.0) return null;
-        if (priority && conflictItem && !conflictItem.priority && minDist < 3.0) {
-          if (conflictItem.element) conflictItem.element.remove();
-          const idx = occupiedPositions.indexOf(conflictItem);
-          if (idx > -1) occupiedPositions.splice(idx, 1);
+        // 3. Логіка для ПРІОРИТЕТНОЇ мітки (вона має видаляти сусідів)
+        if (priority) {
+          // Видаляємо звичайні мітки в радіусі дії
+          for (let i = occupiedPositions.length - 1; i >= 0; i--) {
+            const item = occupiedPositions[i];
+            if (!item.priority) {
+              const dist = Math.abs(item.pos - pos);
+              const isPastLabel = item.pos < pos;
+              const cleanThreshold = isPastLabel ? 18.0 : 5.0; // Радіус зачистки
+
+              if (dist < cleanThreshold) {
+                if (item.element) item.element.remove();
+                occupiedPositions.splice(i, 1);
+              }
+            }
+          }
           conflictItem = null;
+        }
+        else {
+          // Логіка для звичайних міток
+          // Пріоритетні ми вже перевірили в кроці 1. Тепер перевіряємо звичайні конфлікти.
+          if (conflictItem) {
+            if (conflictItem.priority) {
+              // Якщо найближчий - пріоритетний (але пройшов крок 1, тобто далеко), перевіряємо overlap
+              if (minDist < 3.0) return null;
+            } else {
+              // Звичайна vs Звичайна
+              if (minDist < 3.0) return null;
+            }
+          }
         }
 
         const span = document.createElement('span');
