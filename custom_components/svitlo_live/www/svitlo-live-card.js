@@ -99,17 +99,27 @@ class SvitloLiveCardEditor extends HTMLElement {
             <ha-switch id="actual-history-switch"></ha-switch>
           </ha-formfield>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Налаштування кольорів:</label>
-          <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 4px;">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <input type="color" id="color-on-picker" style="height: 42px; width: 42px; padding: 0; border: none; background: none; cursor: pointer;">
-              <ha-textfield id="color-on-input" label="Колір 'Є світло' (Hex/Name)" style="flex: 1;"></ha-textfield>
+          <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Зовнішній вигляд:</label>
+          <ha-formfield label="Показувати тінь картки" style="display: flex; align-items: center; margin-top: 4px;">
+            <ha-switch id="shadow-switch"></ha-switch>
+          </ha-formfield>
+
+          <div style="display: flex; gap: 12px; margin-top: 12px;">
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 12px; font-weight: 500;">Колір "є світло"</label>
+              <input type="color" id="color-on-picker" style="width: 100%; height: 40px; padding: 0; border: 1px solid var(--divider-color); border-radius: 6px; cursor: pointer; background: none;">
             </div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <input type="color" id="color-off-picker" style="height: 42px; width: 42px; padding: 0; border: none; background: none; cursor: pointer;">
-              <ha-textfield id="color-off-input" label="Колір 'Немає світла' (Hex/Name)" style="flex: 1;"></ha-textfield>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 12px; font-weight: 500;">Колір "немає світла"</label>
+              <input type="color" id="color-off-picker" style="width: 100%; height: 40px; padding: 0; border: 1px solid var(--divider-color); border-radius: 6px; cursor: pointer; background: none;">
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <label style="font-size: 12px; font-weight: 500;">Колір "невідомо"</label>
+              <input type="color" id="color-unknown-picker" style="width: 100%; height: 40px; padding: 0; border: 1px solid var(--divider-color); border-radius: 6px; cursor: pointer; background: none;">
             </div>
           </div>
+
+          <button id="reset-colors-btn" style="margin-top: 8px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--divider-color); background: transparent; color: var(--primary-text-color); cursor: pointer; font-size: 13px;">Скинути кольори</button>
 
         </div>
       `;
@@ -186,33 +196,24 @@ class SvitloLiveCardEditor extends HTMLElement {
     const titleInput = this.querySelector("#title-input");
     if (titleInput) titleInput.addEventListener("input", (ev) => this._valueChanged({ target: { configValue: 'title', value: ev.target.value } }));
 
-    const colorOnInput = this.querySelector("#color-on-input");
     const colorOnPicker = this.querySelector("#color-on-picker");
-    if (colorOnInput) {
-      colorOnInput.addEventListener("input", (ev) => {
-        if (colorOnPicker && /^#[0-9A-F]{6}$/i.test(ev.target.value)) colorOnPicker.value = ev.target.value;
-        this._valueChanged({ target: { configValue: 'color_on', value: ev.target.value } });
-      });
-    }
     if (colorOnPicker) {
       colorOnPicker.addEventListener("input", (ev) => {
-        if (colorOnInput) colorOnInput.value = ev.target.value;
         this._valueChanged({ target: { configValue: 'color_on', value: ev.target.value } });
       });
     }
 
-    const colorOffInput = this.querySelector("#color-off-input");
     const colorOffPicker = this.querySelector("#color-off-picker");
-    if (colorOffInput) {
-      colorOffInput.addEventListener("input", (ev) => {
-        if (colorOffPicker && /^#[0-9A-F]{6}$/i.test(ev.target.value)) colorOffPicker.value = ev.target.value;
+    if (colorOffPicker) {
+      colorOffPicker.addEventListener("input", (ev) => {
         this._valueChanged({ target: { configValue: 'color_off', value: ev.target.value } });
       });
     }
-    if (colorOffPicker) {
-      colorOffPicker.addEventListener("input", (ev) => {
-        if (colorOffInput) colorOffInput.value = ev.target.value;
-        this._valueChanged({ target: { configValue: 'color_off', value: ev.target.value } });
+
+    const colorUnknownPicker = this.querySelector("#color-unknown-picker");
+    if (colorUnknownPicker) {
+      colorUnknownPicker.addEventListener("input", (ev) => {
+        this._valueChanged({ target: { configValue: 'color_unknown', value: ev.target.value } });
       });
     }
 
@@ -258,6 +259,26 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahSwitch = this.querySelector("#actual-history-switch");
     if (ahSwitch) ahSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_actual_history', value: ev.target.checked } }));
+
+    const shadowSwitch = this.querySelector("#shadow-switch");
+    if (shadowSwitch) shadowSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_shadow', value: ev.target.checked } }));
+
+    const resetColorsBtn = this.querySelector("#reset-colors-btn");
+    if (resetColorsBtn) {
+      resetColorsBtn.addEventListener("click", () => {
+        const colorOnPicker = this.querySelector("#color-on-picker");
+        const colorOffPicker = this.querySelector("#color-off-picker");
+        const colorUnknownPicker = this.querySelector("#color-unknown-picker");
+        if (colorOnPicker) colorOnPicker.value = '#1b5e20';
+        if (colorOffPicker) colorOffPicker.value = '#7f0000';
+        if (colorUnknownPicker) colorUnknownPicker.value = '#444444';
+        const newConfig = { ...this._config };
+        delete newConfig.color_on;
+        delete newConfig.color_off;
+        delete newConfig.color_unknown;
+        this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: newConfig }, bubbles: true, composed: true }));
+      });
+    }
   }
 
   _updateProperties() {
@@ -265,17 +286,14 @@ class SvitloLiveCardEditor extends HTMLElement {
     const titleInput = this.querySelector("#title-input");
     if (titleInput) titleInput.value = this._config.title || '';
 
-    const colorOnInput = this.querySelector("#color-on-input");
-    if (colorOnInput) colorOnInput.value = this._config.color_on || '';
     const colorOnPicker = this.querySelector("#color-on-picker");
-    if (colorOnPicker && this._config.color_on && /^#[0-9A-F]{6}$/i.test(this._config.color_on)) colorOnPicker.value = this._config.color_on;
-    else if (colorOnPicker) colorOnPicker.value = '#1b5e20';
+    if (colorOnPicker) colorOnPicker.value = this._config.color_on || '#1b5e20';
 
-    const colorOffInput = this.querySelector("#color-off-input");
-    if (colorOffInput) colorOffInput.value = this._config.color_off || '';
     const colorOffPicker = this.querySelector("#color-off-picker");
-    if (colorOffPicker && this._config.color_off && /^#[0-9A-F]{6}$/i.test(this._config.color_off)) colorOffPicker.value = this._config.color_off;
-    else if (colorOffPicker) colorOffPicker.value = '#7f0000';
+    if (colorOffPicker) colorOffPicker.value = this._config.color_off || '#7f0000';
+
+    const colorUnknownPicker = this.querySelector("#color-unknown-picker");
+    if (colorUnknownPicker) colorUnknownPicker.value = this._config.color_unknown || '#444444';
 
     if (this._statusSelector) {
       this._statusSelector.hass = this._hass;
@@ -325,6 +343,9 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
+
+    const shs = this.querySelector("#shadow-switch");
+    if (shs) shs.checked = this._config.show_shadow !== false;
   }
 
   _valueChanged(ev) {
@@ -359,7 +380,7 @@ class SvitloLiveCard extends HTMLElement {
   set hass(hass) {
     if (!this.content) {
       this.innerHTML = `
-        <ha-card style="overflow: hidden; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
+        <ha-card id="svitlo-card" style="overflow: hidden; position: relative; box-shadow: 0 4px 20px rgba(0,0,0,0.3), 0 0 40px rgba(0,0,0,0.1);">
           <div id="container" style="padding: 16px; position: relative;">
             
             <div id="header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; gap: 8px;">
@@ -486,6 +507,18 @@ class SvitloLiveCard extends HTMLElement {
             }
             .stat-item:active {
                transform: scale(0.98);
+            }
+            ha-card.no-shadows {
+               box-shadow: none !important;
+            }
+            ha-card.no-shadows .stat-item {
+               box-shadow: none !important;
+            }
+            ha-card.no-shadows #status {
+               box-shadow: none !important;
+            }
+            ha-card.no-shadows #timeline {
+               box-shadow: none !important;
             }
           </style>
         </ha-card>
@@ -646,6 +679,15 @@ class SvitloLiveCard extends HTMLElement {
   _renderWithCurrentDay(hass) {
     const config = this.config;
     if (!config || !config.entity || !hass.states[config.entity]) return;
+
+    const card = this.querySelector('#svitlo-card');
+    if (card) {
+      if (config.show_shadow === false) {
+        card.classList.add('no-shadows');
+      } else {
+        card.classList.remove('no-shadows');
+      }
+    }
 
     const stateObj = hass.states[config.entity];
     const attrs = stateObj.attributes;
@@ -965,7 +1007,7 @@ class SvitloLiveCard extends HTMLElement {
               const b = document.createElement('div');
               b.style.flex = '1';
               if (s === 'off') b.style.background = 'rgba(127, 0, 0, 0.6)';
-              else if (s === 'unknown') b.style.background = '#000000';
+              else if (s === 'unknown') b.style.background = (config.color_unknown || '#444444');
               else b.style.background = 'rgba(27, 94, 32, 0.6)';
               b.style.borderRight = '1px solid rgba(0,0,0,0.1)';
               row.appendChild(b);
@@ -1118,6 +1160,7 @@ class SvitloLiveCard extends HTMLElement {
 
       const COLOR_ON = config.color_on || '#1b5e20';
       const COLOR_OFF = config.color_off || '#7f0000';
+      const COLOR_UNKNOWN = config.color_unknown || '#444444';
 
       effectiveSchedule.forEach((state, i) => {
         const absIdx = startOffsetIdx + i;
@@ -1131,7 +1174,7 @@ class SvitloLiveCard extends HTMLElement {
 
         let bg = COLOR_ON;
         if (state === 'off') bg = COLOR_OFF;
-        else if (state === 'unknown') bg = '#000000';
+        else if (state === 'unknown') bg = COLOR_UNKNOWN;
 
         const isHistoryMode = (config.show_actual_history) && isPast && isToday;
 
@@ -1178,7 +1221,7 @@ class SvitloLiveCard extends HTMLElement {
             b.style.background = bg;
             b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
           } else if (unknownPct >= 0.95 && outagePct < 0.05) {
-            bg = '#000000';
+            bg = COLOR_UNKNOWN;
             b.style.background = bg;
             b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
           } else {
@@ -1194,7 +1237,7 @@ class SvitloLiveCard extends HTMLElement {
               ov.style.top = '0';
               ov.style.bottom = '0';
               ov.style.zIndex = '1';
-              ov.style.background = '#000000';
+              ov.style.background = COLOR_UNKNOWN;
 
               if (seg.oS === slotStartMs) ov.style.left = '0';
               else ov.style.left = `${startP}%`;
