@@ -185,15 +185,28 @@ action:
           {{ r[k]['events'] | sort(attribute='start') }}
         {% else %}[]{% endif %}
 
-      # Підпис поточного графіка
+      # FIX #2: Фільтруємо лише майбутні події для підпису (ігноруємо минулі)
+      # Це вирішує проблему з повторними сповіщеннями після опівночі
+      future_events: >-
+        {%- set current_time = now().astimezone(now().tzinfo) -%}
+        {%- set ns = namespace(events=[]) -%}
+        {%- for e in raw_events -%}
+          {%- set e_end = as_datetime(e.end).astimezone(now().tzinfo) -%}
+          {%- if e_end > current_time -%}
+            {%- set ns.events = ns.events + [e] -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {{ ns.events }}
+
+      # Підпис ЛИШЕ для майбутніх подій
       schedule_signature: >-
         {%- set ns = namespace(sig='') -%}
-        {%- for e in raw_events -%}
+        {%- for e in future_events -%}
           {%- set s = as_datetime(e.start).strftime('%y%m%d%H%M') -%}
           {%- set t = as_datetime(e.end).strftime('%y%m%d%H%M') -%}
           {%- set ns.sig = ns.sig ~ s ~ t -%}
         {%- endfor -%}
-        {{ ("c=" ~ (raw_events|count|string) ~ ";" ~ ns.sig) | trim }}
+        {{ ("c=" ~ (future_events|count|string) ~ ";" ~ ns.sig) | trim }}
 
       # Отримуємо старий запис з helper'а
       stored_data: "{{ states(storage_helper) | default('') }}"
@@ -346,15 +359,16 @@ action:
                   color: "{{ '#FF0000' if is_emergency else '' }}"
 
       # 2.2) Telegram
+      # FIX #1: Правильна робота з thread_id - використовуємо choose для передачі параметра лише коли потрібно
       - if:
           - condition: template
             value_template: "{{ telegram_chat_id != '' }}"
         then:
           - choose:
-              # Новий unified bot
+              # Новий unified bot З гілкою
               - conditions:
                   - condition: template
-                    value_template: "{{ telegram_config_entry_id != '' }}"
+                    value_template: "{{ telegram_config_entry_id != '' and telegram_message_thread_id != '' }}"
                 sequence:
                   - service: telegram_bot.send_message
                     data:
@@ -368,8 +382,45 @@ action:
                       title: "{{ final_title }}"
                       message: "{{ body_text }}"
                       parse_mode: html
-                      message_thread_id: "{{ telegram_message_thread_id | int(0) if telegram_message_thread_id != '' else omit }}"
-            # Старий bot (без config_entry_id)
+                      message_thread_id: "{{ telegram_message_thread_id | int }}"
+              
+              # Новий unified bot БЕЗ гілки
+              - conditions:
+                  - condition: template
+                    value_template: "{{ telegram_config_entry_id != '' and telegram_message_thread_id == '' }}"
+                sequence:
+                  - service: telegram_bot.send_message
+                    data:
+                      config_entry_id: "{{ telegram_config_entry_id }}"
+                      target: >-
+                        {% if telegram_chat_id is string %}
+                          {{ telegram_chat_id.split(',') | map('trim') | list }}
+                        {% else %}
+                          {{ telegram_chat_id }}
+                        {% endif %}
+                      title: "{{ final_title }}"
+                      message: "{{ body_text }}"
+                      parse_mode: html
+              
+              # Старий bot З гілкою
+              - conditions:
+                  - condition: template
+                    value_template: "{{ telegram_config_entry_id == '' and telegram_message_thread_id != '' }}"
+                sequence:
+                  - service: telegram_bot.send_message
+                    data:
+                      target: >-
+                        {% if telegram_chat_id is string %}
+                          {{ telegram_chat_id.split(',') | map('trim') | list }}
+                        {% else %}
+                          {{ telegram_chat_id }}
+                        {% endif %}
+                      title: "{{ final_title }}"
+                      message: "{{ body_text }}"
+                      parse_mode: html
+                      message_thread_id: "{{ telegram_message_thread_id | int }}"
+            
+            # Старий bot БЕЗ гілки (default)
             default:
               - service: telegram_bot.send_message
                 data:
@@ -382,7 +433,6 @@ action:
                   title: "{{ final_title }}"
                   message: "{{ body_text }}"
                   parse_mode: html
-                  message_thread_id: "{{ telegram_message_thread_id | int(0) if telegram_message_thread_id != '' else omit }}"
 
       # 2.3) Persistent Notification
       - if:

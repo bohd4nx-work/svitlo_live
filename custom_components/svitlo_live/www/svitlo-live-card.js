@@ -1083,7 +1083,7 @@ class SvitloLiveCard extends HTMLElement {
 
         const span = document.createElement('span');
         span.innerText = text;
-        span.style.cssText = `position:absolute;color:var(--secondary-text-color);top:0;transform:translateX(-50%);`;
+        span.style.cssText = `position:absolute;color:var(--secondary-text-color);top:0;`;
 
         if (type === 'start') {
           span.style.left = '0';
@@ -1094,6 +1094,14 @@ class SvitloLiveCard extends HTMLElement {
           span.style.transform = 'none';
         } else {
           span.style.left = `${pos}%`;
+          // Обмежуємо зміщення для міток біля країв
+          if (pos < 5) {
+            span.style.transform = 'translateX(0)';
+          } else if (pos > 95) {
+            span.style.transform = 'translateX(-100%)';
+          } else {
+            span.style.transform = 'translateX(-50%)';
+          }
         }
 
         if (conflictItem && minDist < SPREAD_THRESHOLD && type !== 'start' && type !== 'end') {
@@ -1107,19 +1115,23 @@ class SvitloLiveCard extends HTMLElement {
             const factor = Math.max(0, Math.min(1, (minDist - ZIGZAG_THRESHOLD) / (SPREAD_THRESHOLD - ZIGZAG_THRESHOLD)));
 
             if (conflictItem.pos < pos) {
-              const tx = 10 + (40 * factor);
+              let tx = 20 + (40 * factor);
+              // Обмежуємо зміщення для міток біля правого краю
+              if (pos > 90) tx = Math.min(tx, 50);
               span.style.transform = `translateX(-${tx}%)`;
 
               if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
-                const neighborTx = 90 - (40 * factor);
+                const neighborTx = 80 - (40 * factor);
                 if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
               }
             } else {
-              const tx = 90 - (40 * factor);
+              let tx = 80 - (40 * factor);
+              // Обмежуємо зміщення для міток біля правого краю
+              if (pos > 90) tx = Math.max(tx, 50);
               span.style.transform = `translateX(-${tx}%)`;
 
               if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
-                const neighborTx = 10 + (40 * factor);
+                const neighborTx = 20 + (40 * factor);
                 if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
               }
             }
@@ -1130,6 +1142,28 @@ class SvitloLiveCard extends HTMLElement {
           span.style.color = '#fff';
           span.style.fontWeight = 'bold';
           span.style.zIndex = '15';
+        }
+
+        if (type === 'normal') {
+          if (pos > 92) {
+            // Для міток біля правого краю - дозволяємо розсування вправо
+            const currentTransform = span.style.transform;
+            if (currentTransform && currentTransform.includes('translateX')) {
+              // Витягуємо поточне значення transform
+              const match = currentTransform.match(/translateX\(-?(\d+\.?\d*)%\)/);
+              if (match) {
+                const currentTx = parseFloat(match[1]);
+                // Обмежуємо: від 50% до 98% (щоб не вилазило)
+                const safeTx = Math.min(Math.max(currentTx, 50), 98);
+                span.style.transform = `translateX(-${safeTx}%)`;
+              }
+            } else {
+              span.style.transform = 'translateX(-70%)';
+            }
+          } else if (pos < 8) {
+            span.style.transform = 'translateX(0)';
+            span.style.left = `${Math.max(pos, 2)}%`;
+          }
         }
 
         rulerEl.appendChild(span);
@@ -1383,7 +1417,25 @@ class SvitloLiveCard extends HTMLElement {
         if (!lEl || !vEl) return;
         if (type === 'hours_without_light') {
           let offMins = 0;
-          schedule.forEach(s => { if (s === 'off') offMins += 30; });
+
+          // Якщо активована фарбування минулого по фактичним даним
+          if (config.show_actual_history && showActualHistory && isToday) {
+            // Рахуємо минулі та майбутні слоти окремо
+            effectiveSchedule.forEach((s, i) => {
+              const absIdx = startOffsetIdx + i;
+              const isPast = absIdx < currentIdx;
+
+              // Для минулих слотів використовуємо effectiveSchedule (фактичні дані)
+              // Для майбутніх - schedule (прогноз)
+              const stateToCount = isPast ? s : schedule[i];
+
+              if (stateToCount === 'off') offMins += 30;
+            });
+          } else {
+            // Звичайний підрахунок по графіку
+            schedule.forEach(s => { if (s === 'off') offMins += 30; });
+          }
+
           lEl.innerText = isDynamic ? "У найближчі 24г без світла" : "Всього за добу без світла";
           vEl.innerText = `${parseFloat((offMins / 60).toFixed(1))} год (${Math.round((offMins / (schedule.length * 30)) * 100)}%)`;
         } else if (type === 'next_change') {
