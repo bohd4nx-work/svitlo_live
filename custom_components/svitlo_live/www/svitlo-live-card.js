@@ -1063,7 +1063,7 @@ class SvitloLiveCard extends HTMLElement {
       const occupiedPositions = [];
 
       const addLabel = (text, pos, type = 'normal', priority = false) => {
-        const ZIGZAG_THRESHOLD = 10.0;
+        const ZIGZAG_THRESHOLD = 8.0;
         const SPREAD_THRESHOLD = 14.0;
         const edgeThreshold = 17.0;
 
@@ -1110,7 +1110,6 @@ class SvitloLiveCard extends HTMLElement {
               }
             }
           }
-          conflictItem = null;
         }
         else {
           if (conflictItem) {
@@ -1361,13 +1360,30 @@ class SvitloLiveCard extends HTMLElement {
 
         if (absIdx === currentIdx && isToday && config.show_actual_history && showActualHistory && !isUnknownCurrent) {
           const now = new Date();
-          const percentFromStart = ((now.getMinutes() % 30) / 30) * 100;
+          const slotStartMs = toLocalDisplay(absIdx).date.getTime();
+          const slotDuration = 1800000; // 30 хвилин
+
+          let overlayStart = 0; // відсоток від початку слоту
+          let overlayWidth = ((now.getTime() - slotStartMs) / slotDuration) * 100;
+
+          // Якщо rulerChangeTime в межах поточного слоту - починаємо від нього
+          if (rulerChangeTime) {
+            const changeMs = rulerChangeTime.getTime();
+            const slotEndMs = slotStartMs + slotDuration;
+
+            if (changeMs >= slotStartMs && changeMs <= slotEndMs) {
+              // Зміна стану була всередині цього слоту
+              overlayStart = ((changeMs - slotStartMs) / slotDuration) * 100;
+              overlayWidth = ((now.getTime() - changeMs) / slotDuration) * 100;
+            }
+          }
+
           const overlay = document.createElement('div');
           overlay.style.position = 'absolute';
           overlay.style.top = '0';
           overlay.style.bottom = '0';
-          overlay.style.left = '0';
-          overlay.style.width = `${percentFromStart}%`;
+          overlay.style.left = `${overlayStart}%`;
+          overlay.style.width = `${overlayWidth}%`;
           overlay.style.background = isOffCurrent ? COLOR_OFF : COLOR_ON;
           overlay.style.zIndex = '2';
           b.appendChild(overlay);
