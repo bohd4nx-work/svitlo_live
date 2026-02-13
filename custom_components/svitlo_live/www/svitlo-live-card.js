@@ -43,6 +43,13 @@ class SvitloLiveCardEditor extends HTMLElement {
           <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор екстрених відключень (необов'язково):</label>
           <div id="emergency-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор повітряної тривоги (необов'язково):</label>
+          <div id="air-alert-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
+          <ha-formfield label="Вмикати анімацію тривоги" style="display: flex; align-items: center; margin-top: 4px;">
+            <ha-switch id="air-alert-animation-switch"></ha-switch>
+          </ha-formfield>
+
           <ha-formfield label="Динамічний таймлайн (показувати наступні 24 години, якщо графік опубліковано)" style="display: flex; align-items: center; margin-top: 8px;">
             <ha-switch id="dynamic-switch"></ha-switch>
           </ha-formfield>
@@ -178,6 +185,19 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._emergencySelector = selector;
     }
 
+    const airAlertContainer = this.querySelector("#air-alert-picker-container");
+    if (airAlertContainer) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['binary_sensor', 'input_boolean', 'switch', 'sensor'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'air_alert_entity', value: ev.detail.value } });
+      });
+      airAlertContainer.innerHTML = "";
+      airAlertContainer.appendChild(selector);
+      this._airAlertSelector = selector;
+    }
+
     const scheduleContainer = this.querySelector("#schedule-picker-container");
     if (scheduleContainer) {
       const selector = document.createElement("ha-selector");
@@ -263,6 +283,9 @@ class SvitloLiveCardEditor extends HTMLElement {
     const shadowSwitch = this.querySelector("#shadow-switch");
     if (shadowSwitch) shadowSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_shadow', value: ev.target.checked } }));
 
+    const airAlertAnimSwitch = this.querySelector("#air-alert-animation-switch");
+    if (airAlertAnimSwitch) airAlertAnimSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'air_alert_animation', value: ev.target.checked } }));
+
     const resetColorsBtn = this.querySelector("#reset-colors-btn");
     if (resetColorsBtn) {
       resetColorsBtn.addEventListener("click", () => {
@@ -303,6 +326,11 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (this._emergencySelector) {
       this._emergencySelector.hass = this._hass;
       this._emergencySelector.value = this._config.emergency_entity || '';
+    }
+
+    if (this._airAlertSelector) {
+      this._airAlertSelector.hass = this._hass;
+      this._airAlertSelector.value = this._config.air_alert_entity || '';
     }
 
     const ps = this.querySelector("#priority-switch");
@@ -346,6 +374,9 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const shs = this.querySelector("#shadow-switch");
     if (shs) shs.checked = this._config.show_shadow !== false;
+
+    const aaas = this.querySelector("#air-alert-animation-switch");
+    if (aaas) aaas.checked = this._config.air_alert_animation !== false;
   }
 
   _valueChanged(ev) {
@@ -491,6 +522,20 @@ class SvitloLiveCard extends HTMLElement {
               50% { opacity: 0.92; transform: scale(0.995); }
               100% { opacity: 1; transform: scale(1); }
             }
+            @keyframes air-alert-pulse {
+              0%, 100% { 
+                box-shadow: 0 0 8px 1px rgba(255, 0, 0, 0.6),
+                            0 0 12px 2px rgba(255, 0, 0, 0.4);
+              }
+              50% { 
+                box-shadow: 0 0 12px 2px rgba(255, 0, 0, 0.9),
+                            0 0 18px 3px rgba(255, 0, 0, 0.6);
+              }
+            }
+            ha-card.air-alert-active {
+              animation: air-alert-pulse 2s ease-in-out infinite;
+              border: 3px solid rgba(255, 0, 0, 0.8);
+            }
             .timeline-block {
                position: relative;
                z-index: 1;
@@ -595,40 +640,32 @@ class SvitloLiveCard extends HTMLElement {
         intervals.push({ state: currentState, start: currentStart, end: Date.now() });
       }
 
-      // НОВИЙ КОД: Фільтрація коротких переключень (<15 хв)
-      const MIN_DURATION_MS = 15 * 60 * 1000; // 15 хвилин
+      // Фільтрація коротких переключень (<15 хв)
+      const MIN_DURATION_MS = 15 * 60 * 1000;
       const filteredIntervals = [];
 
       for (let i = 0; i < intervals.length; i++) {
         const interval = intervals[i];
         const duration = interval.end - interval.start;
 
-        // Якщо інтервал довгий (>= 15 хв) - завжди додаємо
         if (duration >= MIN_DURATION_MS) {
           filteredIntervals.push(interval);
           continue;
         }
 
-        // Якщо інтервал короткий (< 15 хв)
-        // Перевіряємо, чи він оточений інтервалами того самого стану
         const prevInterval = intervals[i - 1];
         const nextInterval = intervals[i + 1];
 
-        // Якщо попередній і наступний інтервали мають однаковий стан, 
-        // а поточний інтервал короткий - пропускаємо його (це "глич")
         if (prevInterval && nextInterval &&
           prevInterval.state === nextInterval.state &&
           interval.state !== prevInterval.state) {
-          // Це короткий "глич" - пропускаємо
           continue;
         }
 
-        // Інакше додаємо інтервал
         filteredIntervals.push(interval);
       }
 
-      // Після фільтрації може статися, що сусідні інтервали мають той самий стан
-      // Об'єднуємо їх
+      // Об'єднання сусідніх інтервалів з однаковим станом
       const mergedIntervals = [];
       for (let i = 0; i < filteredIntervals.length; i++) {
         const current = filteredIntervals[i];
@@ -641,7 +678,6 @@ class SvitloLiveCard extends HTMLElement {
         const last = mergedIntervals[mergedIntervals.length - 1];
 
         if (last.state === current.state) {
-          // Об'єднуємо з попереднім інтервалом
           last.end = current.end;
         } else {
           mergedIntervals.push(current);
@@ -844,6 +880,24 @@ class SvitloLiveCard extends HTMLElement {
     }
     if (eb) eb.style.display = isEmergency ? 'block' : 'none';
 
+    // ПЕРЕВІРКА ПОВІТРЯНОЇ ТРИВОГИ
+    let isAirAlert = false;
+    if (config.air_alert_entity && config.air_alert_animation !== false) {
+      const airAlertState = hass.states[config.air_alert_entity];
+      if (airAlertState && (airAlertState.state === 'on' || airAlertState.state === 'true' || airAlertState.state === 'active')) {
+        isAirAlert = true;
+      }
+    }
+
+    // Додаємо/прибираємо клас анімації
+    if (card) {
+      if (isAirAlert) {
+        card.classList.add('air-alert-active');
+      } else {
+        card.classList.remove('air-alert-active');
+      }
+    }
+
     let rulerChangeTime = null;
 
     if (config.use_status_entity && !isOffCurrent && !isUnknownCurrent && this._actualOutages) {
@@ -865,32 +919,26 @@ class SvitloLiveCard extends HTMLElement {
 
     if (!rulerChangeTime) {
       if (config.use_status_entity && customStatusEntity && !isUnknownCurrent) {
-        // Шукаємо РЕАЛЬНУ останню зміну стану в історії
         const nowMs = new Date().getTime();
         const allIntervals = [...(this._actualOutages || []), ...(this._unknownIntervals || [])];
 
         if (allIntervals.length > 0) {
-          // Сортуємо інтервали за часом закінчення
           allIntervals.sort((a, b) => {
             const aEnd = new Date(a.end.dateTime || a.end.date).getTime();
             const bEnd = new Date(b.end.dateTime || b.end.date).getTime();
             return bEnd - aEnd;
           });
 
-          // Знаходимо останній інтервал, який закінчився до поточного моменту
           let lastRealChange = null;
           for (const interval of allIntervals) {
             const endMs = new Date(interval.end.dateTime || interval.end.date).getTime();
-            if (endMs <= nowMs + 60000) { // +1 хв запас
+            if (endMs <= nowMs + 60000) {
               lastRealChange = new Date(interval.end.dateTime || interval.end.date);
               break;
             }
           }
 
-          // Якщо зараз ON (світло є), то це була зміна OFF→ON
-          // Якщо зараз OFF (немає світла), використовуємо початок останнього відключення
           if (isOffCurrent && this._actualOutages && this._actualOutages.length > 0) {
-            // Шукаємо поточне відключення (яке ще триває)
             const currentOutage = this._actualOutages.find(outage => {
               const startMs = new Date(outage.start.dateTime || outage.start.date).getTime();
               const endMs = new Date(outage.end.dateTime || outage.end.date).getTime();
@@ -904,7 +952,6 @@ class SvitloLiveCard extends HTMLElement {
 
           rulerChangeTime = lastRealChange;
         } else {
-          // Якщо немає історії - беремо last_changed
           rulerChangeTime = new Date(customStatusEntity.last_changed);
         }
       } else {
@@ -1035,11 +1082,7 @@ class SvitloLiveCard extends HTMLElement {
 
             let historyToShow = hist;
             if (isDynamic) {
-              // У динамічному режимі показуємо історію тільки для сьогоднішніх слотів
-              // Беремо від startOffsetIdx до кінця сьогодні (48)
               const todayHistoryPart = hist.slice(startOffsetIdx);
-
-              // Додаємо чорні блоки для завтрашніх слотів (немає історії)
               const tomorrowSlotCount = schedule.length - todayHistoryPart.length;
               historyToShow = [...todayHistoryPart, ...Array(tomorrowSlotCount).fill('unknown')];
             }
@@ -1134,7 +1177,6 @@ class SvitloLiveCard extends HTMLElement {
           span.style.transform = 'none';
         } else {
           span.style.left = `${pos}%`;
-          // Обмежуємо зміщення для міток біля країв
           if (pos < 5) {
             span.style.transform = 'translateX(0)';
           } else if (pos > 95) {
@@ -1156,7 +1198,6 @@ class SvitloLiveCard extends HTMLElement {
 
             if (conflictItem.pos < pos) {
               let tx = 20 + (40 * factor);
-              // Обмежуємо зміщення для міток біля правого краю
               if (pos > 90) tx = Math.min(tx, 50);
               span.style.transform = `translateX(-${tx}%)`;
 
@@ -1166,7 +1207,6 @@ class SvitloLiveCard extends HTMLElement {
               }
             } else {
               let tx = 80 - (40 * factor);
-              // Обмежуємо зміщення для міток біля правого краю
               if (pos > 90) tx = Math.max(tx, 50);
               span.style.transform = `translateX(-${tx}%)`;
 
@@ -1186,14 +1226,11 @@ class SvitloLiveCard extends HTMLElement {
 
         if (type === 'normal') {
           if (pos > 92) {
-            // Для міток біля правого краю - дозволяємо розсування вправо
             const currentTransform = span.style.transform;
             if (currentTransform && currentTransform.includes('translateX')) {
-              // Витягуємо поточне значення transform
               const match = currentTransform.match(/translateX\(-?(\d+\.?\d*)%\)/);
               if (match) {
                 const currentTx = parseFloat(match[1]);
-                // Обмежуємо: від 50% до 98% (щоб не вилазило)
                 const safeTx = Math.min(Math.max(currentTx, 50), 98);
                 span.style.transform = `translateX(-${safeTx}%)`;
               }
@@ -1304,51 +1341,39 @@ class SvitloLiveCard extends HTMLElement {
             b.style.borderRight = (i + 1) % 2 === 0 ? '1px solid rgba(255,255,255,0.1)' : 'none';
 
             unknownSegments.forEach(seg => {
-              const startP = ((seg.oS - slotStartMs) / slotDuration) * 100;
-              const widthP = ((seg.oE - seg.oS) / slotDuration) * 100;
+              const startP = Math.max(0, ((seg.oS - slotStartMs) / slotDuration) * 100);
+              const widthP = Math.min(100 - startP, ((seg.oE - seg.oS) / slotDuration) * 100);
               const ov = document.createElement('div');
               ov.style.position = 'absolute';
               ov.style.top = '0';
               ov.style.bottom = '0';
+              ov.style.left = `${startP}%`;
+              ov.style.width = `${widthP}%`;
               ov.style.zIndex = '1';
               ov.style.background = COLOR_UNKNOWN;
 
-              if (seg.oS === slotStartMs) ov.style.left = '0';
-              else ov.style.left = `${startP}%`;
-
-              if (seg.oE === slotEndMs) {
-                ov.style.right = '0';
-                if (b.style.borderRight && b.style.borderRight !== 'none') {
-                  ov.style.borderRight = b.style.borderRight;
-                  b.style.borderRight = 'none';
-                }
-              } else {
-                ov.style.width = `${widthP}%`;
+              if (startP + widthP >= 99.9 && b.style.borderRight && b.style.borderRight !== 'none') {
+                ov.style.borderRight = b.style.borderRight;
+                b.style.borderRight = 'none';
               }
               b.appendChild(ov);
             });
 
             outageSegments.forEach(seg => {
-              const startP = ((seg.oS - slotStartMs) / slotDuration) * 100;
-              const widthP = ((seg.oE - seg.oS) / slotDuration) * 100;
+              const startP = Math.max(0, ((seg.oS - slotStartMs) / slotDuration) * 100);
+              const widthP = Math.min(100 - startP, ((seg.oE - seg.oS) / slotDuration) * 100);
               const ov = document.createElement('div');
               ov.style.position = 'absolute';
               ov.style.top = '0';
               ov.style.bottom = '0';
+              ov.style.left = `${startP}%`;
+              ov.style.width = `${widthP}%`;
               ov.style.zIndex = '2';
               ov.style.background = COLOR_OFF;
 
-              if (seg.oS === slotStartMs) ov.style.left = '0';
-              else ov.style.left = `${startP}%`;
-
-              if (seg.oE === slotEndMs) {
-                ov.style.right = '0';
-                if (b.style.borderRight && b.style.borderRight !== 'none') {
-                  ov.style.borderRight = b.style.borderRight;
-                  b.style.borderRight = 'none';
-                }
-              } else {
-                ov.style.width = `${widthP}%`;
+              if (startP + widthP >= 99.9 && b.style.borderRight && b.style.borderRight !== 'none') {
+                ov.style.borderRight = b.style.borderRight;
+                b.style.borderRight = 'none';
               }
               b.appendChild(ov);
             });
@@ -1361,18 +1386,16 @@ class SvitloLiveCard extends HTMLElement {
         if (absIdx === currentIdx && isToday && config.show_actual_history && showActualHistory && !isUnknownCurrent) {
           const now = new Date();
           const slotStartMs = toLocalDisplay(absIdx).date.getTime();
-          const slotDuration = 1800000; // 30 хвилин
+          const slotDuration = 1800000;
 
-          let overlayStart = 0; // відсоток від початку слоту
+          let overlayStart = 0;
           let overlayWidth = ((now.getTime() - slotStartMs) / slotDuration) * 100;
 
-          // Якщо rulerChangeTime в межах поточного слоту - починаємо від нього
           if (rulerChangeTime) {
             const changeMs = rulerChangeTime.getTime();
             const slotEndMs = slotStartMs + slotDuration;
 
             if (changeMs >= slotStartMs && changeMs <= slotEndMs) {
-              // Зміна стану була всередині цього слоту
               overlayStart = ((changeMs - slotStartMs) / slotDuration) * 100;
               overlayWidth = ((now.getTime() - changeMs) / slotDuration) * 100;
             }
@@ -1475,21 +1498,14 @@ class SvitloLiveCard extends HTMLElement {
         if (type === 'hours_without_light') {
           let offMins = 0;
 
-          // Якщо активована фарбування минулого по фактичним даним
           if (config.show_actual_history && showActualHistory && isToday) {
-            // Рахуємо минулі та майбутні слоти окремо
             effectiveSchedule.forEach((s, i) => {
               const absIdx = startOffsetIdx + i;
               const isPast = absIdx < currentIdx;
-
-              // Для минулих слотів використовуємо effectiveSchedule (фактичні дані)
-              // Для майбутніх - schedule (прогноз)
               const stateToCount = isPast ? s : schedule[i];
-
               if (stateToCount === 'off') offMins += 30;
             });
           } else {
-            // Звичайний підрахунок по графіку
             schedule.forEach(s => { if (s === 'off') offMins += 30; });
           }
 
