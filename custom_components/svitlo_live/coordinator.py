@@ -175,6 +175,9 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         today_half = build_half_list(slots_today_map)
         tomorrow_half = build_half_list(slots_tomorrow_map) if slots_tomorrow_map else []
+        # If all slots are "unknown", there's no real schedule → treat as empty
+        if tomorrow_half and all(s == "unknown" for s in tomorrow_half):
+            tomorrow_half = []
 
         # --- Statistics calculation ---
         today_outage_hours = today_half.count("off") * 0.5
