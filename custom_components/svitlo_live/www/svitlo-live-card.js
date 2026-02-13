@@ -865,7 +865,48 @@ class SvitloLiveCard extends HTMLElement {
 
     if (!rulerChangeTime) {
       if (config.use_status_entity && customStatusEntity && !isUnknownCurrent) {
-        rulerChangeTime = new Date(customStatusEntity.last_changed);
+        // Шукаємо РЕАЛЬНУ останню зміну стану в історії
+        const nowMs = new Date().getTime();
+        const allIntervals = [...(this._actualOutages || []), ...(this._unknownIntervals || [])];
+
+        if (allIntervals.length > 0) {
+          // Сортуємо інтервали за часом закінчення
+          allIntervals.sort((a, b) => {
+            const aEnd = new Date(a.end.dateTime || a.end.date).getTime();
+            const bEnd = new Date(b.end.dateTime || b.end.date).getTime();
+            return bEnd - aEnd;
+          });
+
+          // Знаходимо останній інтервал, який закінчився до поточного моменту
+          let lastRealChange = null;
+          for (const interval of allIntervals) {
+            const endMs = new Date(interval.end.dateTime || interval.end.date).getTime();
+            if (endMs <= nowMs + 60000) { // +1 хв запас
+              lastRealChange = new Date(interval.end.dateTime || interval.end.date);
+              break;
+            }
+          }
+
+          // Якщо зараз ON (світло є), то це була зміна OFF→ON
+          // Якщо зараз OFF (немає світла), використовуємо початок останнього відключення
+          if (isOffCurrent && this._actualOutages && this._actualOutages.length > 0) {
+            // Шукаємо поточне відключення (яке ще триває)
+            const currentOutage = this._actualOutages.find(outage => {
+              const startMs = new Date(outage.start.dateTime || outage.start.date).getTime();
+              const endMs = new Date(outage.end.dateTime || outage.end.date).getTime();
+              return startMs <= nowMs && endMs >= nowMs - 60000;
+            });
+
+            if (currentOutage) {
+              lastRealChange = new Date(currentOutage.start.dateTime || currentOutage.start.date);
+            }
+          }
+
+          rulerChangeTime = lastRealChange;
+        } else {
+          // Якщо немає історії - беремо last_changed
+          rulerChangeTime = new Date(customStatusEntity.last_changed);
+        }
       } else {
         const relativeCurrentIdx = currentIdx - startOffsetIdx;
         const currentPlan = schedule[relativeCurrentIdx] || 'unknown';
