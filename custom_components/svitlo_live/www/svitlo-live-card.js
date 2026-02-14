@@ -465,7 +465,7 @@ class SvitloLiveCard extends HTMLElement {
                   margin-top: 2px; 
               "></div>
 
-              <div id="ruler" style="height: 30px; position: relative; font-size: 11px; opacity: 0.5; margin-top: 4px; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; font-weight: 500;">
+              <div id="ruler" style="position: relative; font-size: 11px; opacity: 0.5; margin-top: 4px; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; font-weight: 500;">
               </div>
             </div>
 
@@ -1102,150 +1102,312 @@ class SvitloLiveCard extends HTMLElement {
         }
       }
 
+      // КРОК 1: Спочатку порахуємо скільки буде планових міток
+      let plannedLabelCount = 0;
+      for (let i = 1; i < effectiveSchedule.length; i++) {
+        const absIdx = startOffsetIdx + i;
+        const isPlanChange = schedule[i] !== schedule[i - 1];
+        const isEffChange = effectiveSchedule[i] !== effectiveSchedule[i - 1];
+        const currPlan = schedule[i];
+        const currEff = effectiveSchedule[i];
+        const isActualChangeHere = (rulerChangeTime && changeSlotIdx === absIdx && config.use_status_entity);
+        const showPlanLabel = isPlanChange && !isActualChangeHere && (isEffChange || (currEff !== currPlan));
+        if (showPlanLabel) {
+          // Якщо ввімкнено фактичні відключення - не рахуємо планові мітки для минулого
+          if (config.show_actual_history && showActualHistory && absIdx <= currentIdx && isToday) continue;
+          plannedLabelCount++;
+        }
+      }
+
       const totalSlots = effectiveSchedule.length;
       const occupiedPositions = [];
+      let labelCounter = 0;
+
+      // Обчислюємо позицію пріоритетної мітки (якщо є) - ПЕРЕД вибором режиму
+      // ВАЖЛИВО: тільки якщо використовуються фактичні відключення (use_status_entity + show_actual_history)
+      let priorityLabelPos = null;
+      if (rulerChangeTime && config.use_status_entity && config.show_actual_history) {
+        priorityLabelPos = ((rulerChangeTime.getTime() - toLocalDisplay(startOffsetIdx).date.getTime()) / (totalSlots * 1800000)) * 100;
+      }
+
+      // Вибір режиму:
+      // - Якщо є пріоритетна мітка (фактичні відключення) і багато міток (>8) → два ряди
+      // - Якщо немає пріоритетної мітки але ДУЖЕ багато міток (>8) → два ряди  
+      // - В іншому випадку → старий зигзаг-режим
+      const useTwoRowMode = plannedLabelCount > 8;
+
+      // Завжди встановлюємо висоту 40px, бо обидва режими можуть використовувати другий ряд
+      if (rulerEl) {
+        rulerEl.style.height = '40px';
+      }
 
       const addLabel = (text, pos, type = 'normal', priority = false) => {
-        const ZIGZAG_THRESHOLD = 8.0;
-        const SPREAD_THRESHOLD = 14.0;
-        const edgeThreshold = 17.0;
+        if (useTwoRowMode) {
+          // ЛОГІКА ДЛЯ ДВОХ РЯДІВ (коли багато міток)
+          const MIN_DISTANCE = 5.0;
 
-        if (!priority) {
-          for (const item of occupiedPositions) {
-            if (item.priority) {
-              const dist = Math.abs(item.pos - pos);
-              const isPast = pos < item.pos;
-              if (dist < (isPast ? 25.0 : 4.0)) return null;
+          let hasPriorityConflict = false;
+          if (!priority && priorityLabelPos !== null) {
+            const dist = Math.abs(priorityLabelPos - pos);
+            const isPast = pos < priorityLabelPos;
+            if (dist < (isPast ? 30.0 : 16.0)) {
+              hasPriorityConflict = true;
             }
           }
-        }
 
-        let conflictItem = null;
-        let minDist = 999;
+          let conflictItem = null;
+          let minDist = 999;
 
-        occupiedPositions.forEach(item => {
-          const dist = Math.abs(item.pos - pos);
-          if (dist < SPREAD_THRESHOLD && dist < minDist) {
-            minDist = dist;
-            conflictItem = item;
-          }
-        });
-
-        if ((type === 'start' || type === 'end')) {
-          let edgeConflict = false;
           occupiedPositions.forEach(item => {
-            if (Math.abs(item.pos - pos) < edgeThreshold) edgeConflict = true;
-          });
-          if (edgeConflict) return null;
-        }
-
-        if (priority) {
-          for (let i = occupiedPositions.length - 1; i >= 0; i--) {
-            const item = occupiedPositions[i];
-            if (!item.priority) {
+            if (item.pos < pos || type === 'end') {
               const dist = Math.abs(item.pos - pos);
-              const isPastLabel = item.pos < pos;
-              const cleanThreshold = isPastLabel ? 18.0 : 5.0;
+              if (dist < minDist) {
+                minDist = dist;
+                conflictItem = item;
+              }
+            }
+          });
 
-              if (dist < cleanThreshold) {
-                if (item.element) item.element.remove();
-                occupiedPositions.splice(i, 1);
+          if ((type === 'start' || type === 'end')) {
+            let edgeConflict = false;
+            occupiedPositions.forEach(item => {
+              if (Math.abs(item.pos - pos) < 25.0) edgeConflict = true;
+            });
+            if (edgeConflict) return null;
+          }
+
+          if (priority) {
+            for (let i = occupiedPositions.length - 1; i >= 0; i--) {
+              const item = occupiedPositions[i];
+              if (!item.priority) {
+                const dist = Math.abs(item.pos - pos);
+                const isPastLabel = item.pos < pos;
+                const cleanThreshold = isPastLabel ? 25.0 : 8.0;
+                if (dist < cleanThreshold) {
+                  if (item.element) item.element.remove();
+                  occupiedPositions.splice(i, 1);
+                }
               }
             }
           }
-        }
-        else {
-          if (conflictItem) {
-            if (conflictItem.priority) {
-              if (minDist < 3.0) return null;
+
+          const span = document.createElement('span');
+          span.innerText = text;
+          span.style.cssText = `position:absolute;color:var(--secondary-text-color);`;
+
+          let useSecondRow = false;
+          if (type !== 'start' && type !== 'end' && !priority) {
+            // Якщо є конфлікт з пріоритетною - завжди другий ряд
+            if (hasPriorityConflict) {
+              useSecondRow = true;
+            } else if (conflictItem && minDist < MIN_DISTANCE) {
+              const isConflictOnSecondRow = (conflictItem.element.style.top === '16px');
+              useSecondRow = !isConflictOnSecondRow;
             } else {
-              if (minDist < 3.0) return null;
+              useSecondRow = (labelCounter % 2 === 1);
+            }
+            labelCounter++;
+          }
+
+          span.style.top = useSecondRow ? '16px' : '0';
+
+          if (type === 'start') {
+            span.style.left = '0';
+            span.style.transform = 'none';
+          } else if (type === 'end') {
+            span.style.right = '0';
+            span.style.left = 'auto';
+            span.style.transform = 'none';
+          } else {
+            span.style.left = `${pos}%`;
+            if (pos < 5) {
+              span.style.transform = 'translateX(0)';
+            } else if (pos > 95) {
+              span.style.transform = 'translateX(-100%)';
+            } else {
+              span.style.transform = 'translateX(-50%)';
             }
           }
-        }
 
-        const span = document.createElement('span');
-        span.innerText = text;
-        span.style.cssText = `position:absolute;color:var(--secondary-text-color);top:0;`;
+          if (priority) {
+            span.style.color = '#fff';
+            span.style.fontWeight = 'bold';
+            span.style.zIndex = '15';
+          }
 
-        if (type === 'start') {
-          span.style.left = '0';
-          span.style.transform = 'none';
-        } else if (type === 'end') {
-          span.style.right = '0';
-          span.style.left = 'auto';
-          span.style.transform = 'none';
+          if (type === 'normal') {
+            if (pos > 92) {
+              const currentTransform = span.style.transform;
+              if (currentTransform && currentTransform.includes('translateX')) {
+                const match = currentTransform.match(/translateX\(-?(\d+\.?\d*)%\)/);
+                if (match) {
+                  const currentTx = parseFloat(match[1]);
+                  const safeTx = Math.min(Math.max(currentTx, 50), 98);
+                  span.style.transform = `translateX(-${safeTx}%)`;
+                }
+              } else {
+                span.style.transform = 'translateX(-70%)';
+              }
+            } else if (pos < 8) {
+              span.style.transform = 'translateX(0)';
+              span.style.left = `${Math.max(pos, 2)}%`;
+            }
+          }
+
+          rulerEl.appendChild(span);
+          occupiedPositions.push({ pos: pos, element: span, priority: priority, type: type });
+          return span;
+
         } else {
-          span.style.left = `${pos}%`;
-          if (pos < 5) {
-            span.style.transform = 'translateX(0)';
-          } else if (pos > 95) {
-            span.style.transform = 'translateX(-100%)';
-          } else {
-            span.style.transform = 'translateX(-50%)';
-          }
-        }
+          // СТАРА ЛОГІКА (коли мало міток) - РОЗСУВАННЯ ПО ГОРИЗОНТАЛІ + ДРУГИЙ РЯД ДЛЯ КОНФЛІКТІВ З ПРІОРИТЕТНИМИ
+          const ZIGZAG_THRESHOLD = 8.0;
+          const SPREAD_THRESHOLD = 14.0;
+          const edgeThreshold = 17.0;
 
-        if (conflictItem && minDist < SPREAD_THRESHOLD && type !== 'start' && type !== 'end') {
-          const isNeighborDown = conflictItem.element.style.top === '14px';
-
-          if (minDist < ZIGZAG_THRESHOLD) {
-            if (!isNeighborDown && type !== 'start' && type !== 'end') {
-              span.style.top = '14px';
+          let hasPriorityConflict = false;
+          if (!priority && priorityLabelPos !== null) {
+            const dist = Math.abs(priorityLabelPos - pos);
+            const isPast = pos < priorityLabelPos;
+            // Якщо конфлікт з пріоритетною міткою - запам'ятовуємо
+            // Збільшена відстань праворуч, бо пріоритетні мітки жирні і займають більше місця
+            if (dist < (isPast ? 25.0 : 16.0)) {
+              hasPriorityConflict = true;
             }
+          }
+
+          let conflictItem = null;
+          let minDist = 999;
+
+          occupiedPositions.forEach(item => {
+            const dist = Math.abs(item.pos - pos);
+            if (dist < SPREAD_THRESHOLD && dist < minDist) {
+              minDist = dist;
+              conflictItem = item;
+            }
+          });
+
+          if ((type === 'start' || type === 'end')) {
+            let edgeConflict = false;
+            occupiedPositions.forEach(item => {
+              if (Math.abs(item.pos - pos) < edgeThreshold) edgeConflict = true;
+            });
+            if (edgeConflict) return null;
+          }
+
+          if (priority) {
+            for (let i = occupiedPositions.length - 1; i >= 0; i--) {
+              const item = occupiedPositions[i];
+              if (!item.priority) {
+                const dist = Math.abs(item.pos - pos);
+                const isPastLabel = item.pos < pos;
+                const cleanThreshold = isPastLabel ? 18.0 : 5.0;
+
+                if (dist < cleanThreshold) {
+                  if (item.element) item.element.remove();
+                  occupiedPositions.splice(i, 1);
+                }
+              }
+            }
+          }
+          else {
+            // Для непріоритетних міток - не приховуємо при конфлікті з іншими непріоритетними
+            if (conflictItem && !conflictItem.priority) {
+              if (minDist < 3.0) return null;
+            }
+            // Якщо конфлікт з пріоритетною - НЕ приховуємо, а переносимо в другий ряд (це вже оброблено вище)
+          }
+
+          const span = document.createElement('span');
+          span.innerText = text;
+          span.style.cssText = `position:absolute;color:var(--secondary-text-color);`;
+
+          // Якщо є конфлікт з пріоритетною міткою - ставимо в другий ряд
+          if (hasPriorityConflict && type !== 'start' && type !== 'end') {
+            span.style.top = '16px';
           } else {
-            const factor = Math.max(0, Math.min(1, (minDist - ZIGZAG_THRESHOLD) / (SPREAD_THRESHOLD - ZIGZAG_THRESHOLD)));
+            span.style.top = '0';
+          }
 
-            if (conflictItem.pos < pos) {
-              let tx = 20 + (40 * factor);
-              if (pos > 90) tx = Math.min(tx, 50);
-              span.style.transform = `translateX(-${tx}%)`;
+          if (type === 'start') {
+            span.style.left = '0';
+            span.style.transform = 'none';
+          } else if (type === 'end') {
+            span.style.right = '0';
+            span.style.left = 'auto';
+            span.style.transform = 'none';
+          } else {
+            span.style.left = `${pos}%`;
+            if (pos < 5) {
+              span.style.transform = 'translateX(0)';
+            } else if (pos > 95) {
+              span.style.transform = 'translateX(-100%)';
+            } else {
+              span.style.transform = 'translateX(-50%)';
+            }
+          }
 
-              if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
-                const neighborTx = 80 - (40 * factor);
-                if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
+          // Розсування застосовуємо тільки якщо немає конфлікту з пріоритетною
+          if (!hasPriorityConflict && conflictItem && minDist < SPREAD_THRESHOLD && type !== 'start' && type !== 'end') {
+            const isNeighborDown = conflictItem.element.style.top === '14px' || conflictItem.element.style.top === '16px';
+
+            if (minDist < ZIGZAG_THRESHOLD) {
+              if (!isNeighborDown && type !== 'start' && type !== 'end') {
+                span.style.top = '16px';
               }
             } else {
-              let tx = 80 - (40 * factor);
-              if (pos > 90) tx = Math.max(tx, 50);
-              span.style.transform = `translateX(-${tx}%)`;
+              const factor = Math.max(0, Math.min(1, (minDist - ZIGZAG_THRESHOLD) / (SPREAD_THRESHOLD - ZIGZAG_THRESHOLD)));
 
-              if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
-                const neighborTx = 20 + (40 * factor);
-                if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
+              if (conflictItem.pos < pos) {
+                let tx = 20 + (40 * factor);
+                if (pos > 90) tx = Math.min(tx, 50);
+                span.style.transform = `translateX(-${tx}%)`;
+
+                if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
+                  const neighborTx = 80 - (40 * factor);
+                  if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
+                }
+              } else {
+                let tx = 80 - (40 * factor);
+                if (pos > 90) tx = Math.max(tx, 50);
+                span.style.transform = `translateX(-${tx}%)`;
+
+                if (conflictItem.type !== 'start' && conflictItem.type !== 'end') {
+                  const neighborTx = 20 + (40 * factor);
+                  if (conflictItem.element) conflictItem.element.style.transform = `translateX(-${neighborTx}%)`;
+                }
               }
             }
           }
-        }
 
-        if (priority) {
-          span.style.color = '#fff';
-          span.style.fontWeight = 'bold';
-          span.style.zIndex = '15';
-        }
-
-        if (type === 'normal') {
-          if (pos > 92) {
-            const currentTransform = span.style.transform;
-            if (currentTransform && currentTransform.includes('translateX')) {
-              const match = currentTransform.match(/translateX\(-?(\d+\.?\d*)%\)/);
-              if (match) {
-                const currentTx = parseFloat(match[1]);
-                const safeTx = Math.min(Math.max(currentTx, 50), 98);
-                span.style.transform = `translateX(-${safeTx}%)`;
-              }
-            } else {
-              span.style.transform = 'translateX(-70%)';
-            }
-          } else if (pos < 8) {
-            span.style.transform = 'translateX(0)';
-            span.style.left = `${Math.max(pos, 2)}%`;
+          if (priority) {
+            span.style.color = '#fff';
+            span.style.fontWeight = 'bold';
+            span.style.zIndex = '15';
           }
-        }
 
-        rulerEl.appendChild(span);
-        occupiedPositions.push({ pos: pos, element: span, priority: priority, type: type });
-        return span;
+          if (type === 'normal') {
+            if (pos > 92) {
+              const currentTransform = span.style.transform;
+              if (currentTransform && currentTransform.includes('translateX')) {
+                const match = currentTransform.match(/translateX\(-?(\d+\.?\d*)%\)/);
+                if (match) {
+                  const currentTx = parseFloat(match[1]);
+                  const safeTx = Math.min(Math.max(currentTx, 50), 98);
+                  span.style.transform = `translateX(-${safeTx}%)`;
+                }
+              } else {
+                span.style.transform = 'translateX(-70%)';
+              }
+            } else if (pos < 8) {
+              span.style.transform = 'translateX(0)';
+              span.style.left = `${Math.max(pos, 2)}%`;
+            }
+          }
+
+          rulerEl.appendChild(span);
+          occupiedPositions.push({ pos: pos, element: span, priority: priority, type: type });
+          return span;
+        }
       };
 
       if (showActualHistory && this._actualOutages && isToday) {
@@ -1433,7 +1595,8 @@ class SvitloLiveCard extends HTMLElement {
           const showPlanLabel = isPlanChange && !isActualChangeHere && (isEffChange || (currEff !== currPlan));
 
           if (showPlanLabel) {
-            if (config.show_actual_history && absIdx <= currentIdx && currEff === currPlan) return;
+            // Якщо ввімкнено фактичні відключення - не показуємо планові мітки для минулого
+            if (config.show_actual_history && showActualHistory && absIdx <= currentIdx && isToday) return;
 
             const pos = (i / totalSlots) * 100;
             const newLabel = addLabel(slotInfo.time, pos, 'normal', false);
