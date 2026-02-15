@@ -161,6 +161,17 @@ condition:
         true
       {% endif %}
 
+  # Блокуємо виконання о 00:00-01:00 (технічна зміна дати)
+  # ОКРІМ випадків екстрених відключень
+  - condition: template
+    value_template: >-
+      {% set current_hour = now().hour %}
+      {% if current_hour == 0 %}
+        {{ trigger.entity_id is defined and trigger.entity_id == emergency_entity }}
+      {% else %}
+        true
+      {% endif %}
+
 action:
   # Затримка на вимкнення аварії (4 години)
   - if:
@@ -187,7 +198,10 @@ action:
 
       # FIX #2: Для підпису беремо події сьогодні + завтра (фіксований період)
       # Це запобігає зміні підпису коли подія завершується протягом дня
-      # Щоб уникнути хибного спрацювання о 00:00 (зміна дати), є додаткова перевірка години нижче
+      # Додаємо дату до підпису для створення "референсного стану" на початок доби:
+      # - Перший запуск після 00:xx (о 01:00+) → тільки оновлює helper, БЕЗ сповіщення
+      # - Це створює стабільний референс для порівняння протягом дня
+      # - Наступні оновлення порівнюються з цим référence
       events_for_signature: >-
         {%- set today = now().astimezone(now().tzinfo).date() -%}
         {%- set tomorrow = (now().astimezone(now().tzinfo) + timedelta(days=1)).date() -%}
@@ -202,14 +216,16 @@ action:
         {{ ns.events }}
 
       # Підпис для подій сьогодні + завтра (незалежно від поточного часу)
+      # Додаємо поточну дату для відстеження першого запуску після опівночі
       schedule_signature: >-
+        {%- set date_prefix = now().strftime('%Y%m%d') -%}
         {%- set ns = namespace(sig='') -%}
         {%- for e in events_for_signature -%}
           {%- set s = as_datetime(e.start).strftime('%y%m%d%H%M') -%}
           {%- set t = as_datetime(e.end).strftime('%y%m%d%H%M') -%}
           {%- set ns.sig = ns.sig ~ s ~ t -%}
         {%- endfor -%}
-        {{ ("c=" ~ (events_for_signature|count|string) ~ ";" ~ ns.sig) | trim }}
+        {{ date_prefix ~ "|c=" ~ (events_for_signature|count|string) ~ ";" ~ ns.sig }}
 
       # Отримуємо старий запис з helper'а
       stored_data: "{{ states(storage_helper) | default('') }}"
@@ -220,31 +236,31 @@ action:
       # Отримуємо чистий підпис графіка (видаляємо префікс аварії, якщо він є)
       old_signature: "{{ stored_data | replace('!E!', '') }}"
 
+      # Перевіряємо чи це перший запуск після опівночі
+      # Якщо дата в helper старіша за сьогодні - це перший запуск, тільки оновлюємо референс
+      current_date: "{{ now().strftime('%Y%m%d') }}"
+      old_date: >-
+        {%- if old_signature|length >= 8 -%}
+          {{ old_signature[:8] }}
+        {%- else -%}
+          {{ current_date }}
+        {%- endif -%}
+      is_first_run_after_midnight: "{{ old_signature|length >= 8 and old_date < current_date }}"
+
       # ЛОГІКА ЗМІН (Anti-Spam)
       # 1. Аварія змінилась ТІЛЬКИ якщо поточний статус не співпадає з записаним у хелпері.
       emergency_status_changed: "{{ is_emergency != last_was_emergency }}"
 
       # 2. Графік змінився, якщо новий підпис не співпадає зі старим
-      # Але ігноруємо зміни о 00:00-01:00 (технічна зміна дати)
+      # АЛЕ якщо це перший запуск після midnight - не вважаємо це зміною
       schedule_has_changed: >-
-        {% set current_hour = now().hour %}
-        {% if current_hour == 0 %}
-          false
-        {% elif send_on_first_run and stored_data == '' %}
-          true
-        {% else %}
-          {{ schedule_signature[-250:] != old_signature[-250:] }}
-        {% endif %}
+        {{ not is_first_run_after_midnight and 
+           ((send_on_first_run and stored_data == '') or 
+            schedule_signature[-250:] != old_signature[-250:]) }}
 
       # Загальна перевірка: чи треба щось слати?
       should_notify: >-
-        {% if emergency_status_changed and notify_emergency_changes %}
-           true
-        {% elif schedule_has_changed %}
-           true
-        {% else %}
-           false
-        {% endif %}
+        {{ (emergency_status_changed and notify_emergency_changes) or schedule_has_changed }}
 
   - if:
       - condition: template
