@@ -132,14 +132,14 @@ variables:
 
   # Поточний статус аварії
   is_emergency: >-
-    {% if emergency_entity %}
+    {% if emergency_entity is string and emergency_entity != '' %}
       {{ is_state(emergency_entity, 'on') }}
     {% else %}
-      false
+      {{ false }}
     {% endif %}
 
   triggered_by_emergency: >-
-    {{ trigger.entity_id is defined and trigger.entity_id == emergency_entity }}
+    {{ trigger.entity_id is defined and emergency_entity is string and emergency_entity != '' and trigger.entity_id == emergency_entity }}
 
 trigger:
   - platform: state
@@ -167,7 +167,7 @@ condition:
     value_template: >-
       {% set current_hour = now().hour %}
       {% if current_hour == 0 %}
-        {{ trigger.entity_id is defined and trigger.entity_id == emergency_entity }}
+        {{ trigger.entity_id is defined and emergency_entity is string and emergency_entity != '' and trigger.entity_id == emergency_entity }}
       {% else %}
         true
       {% endif %}
@@ -236,16 +236,22 @@ action:
       # Отримуємо чистий підпис графіка (видаляємо префікс аварії, якщо він є)
       old_signature: "{{ stored_data | replace('!E!', '') }}"
 
+      # Міграція старого формату: підтримуємо як старий формат (c=...) так і новий (20260215|c=...)
+      # При першому запуску з новою версією, helper автоматично оновиться до нового формату
+
       # Перевіряємо чи це перший запуск після опівночі
       # Якщо дата в helper старіша за сьогодні - це перший запуск, тільки оновлюємо референс
+      # Підтримка старого формату (без дати): якщо починається з "c=" - це старі дані
       current_date: "{{ now().strftime('%Y%m%d') }}"
       old_date: >-
-        {%- if old_signature|length >= 8 -%}
+        {%- if old_signature|length >= 2 and old_signature[:2] == 'c=' -%}
+          {{ current_date }}
+        {%- elif old_signature|length >= 8 -%}
           {{ old_signature[:8] }}
         {%- else -%}
           {{ current_date }}
         {%- endif -%}
-      is_first_run_after_midnight: "{{ old_signature|length >= 8 and old_date < current_date }}"
+      is_first_run_after_midnight: "{{ old_signature|length >= 8 and (old_signature|length < 2 or old_signature[:2] != 'c=') and (old_date|int(0)) < (current_date|int(0)) }}"
 
       # ЛОГІКА ЗМІН (Anti-Spam)
       # 1. Аварія змінилась ТІЛЬКИ якщо поточний статус не співпадає з записаним у хелпері.
@@ -253,10 +259,23 @@ action:
 
       # 2. Графік змінився, якщо новий підпис не співпадає зі старим
       # АЛЕ якщо це перший запуск після midnight - не вважаємо це зміною
+      # Для порівняння витягуємо чисті підписи (без префікса дати)
+      clean_old_signature: >-
+        {%- if '|' in old_signature -%}
+          {{ old_signature.split('|')[1] }}
+        {%- else -%}
+          {{ old_signature }}
+        {%- endif -%}
+      clean_new_signature: >-
+        {%- if '|' in schedule_signature -%}
+          {{ schedule_signature.split('|')[1] }}
+        {%- else -%}
+          {{ schedule_signature }}
+        {%- endif -%}
       schedule_has_changed: >-
         {{ not is_first_run_after_midnight and 
            ((send_on_first_run and stored_data == '') or 
-            schedule_signature[-250:] != old_signature[-250:]) }}
+            clean_new_signature[-250:] != clean_old_signature[-250:]) }}
 
       # Загальна перевірка: чи треба щось слати?
       should_notify: >-
